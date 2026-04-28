@@ -1,36 +1,52 @@
-from src.data_loader import load_data
-from src.preprocessing import preprocess_data, split_data
-from src.model import train_model, save_model
+from src.data_preprocessing import load_data, clean_data, split_data
+from src.feature_engineering import build_preprocessing_pipeline
+from src.train import train_model
 from src.evaluate import evaluate_model
-from src.config import RAW_DATA_PATH, MODEL_PATH
+from src.persistence import save_artifacts
+from src.config import (RAW_DATA_PATH, MODEL_PATH, PIPELINE_PATH, 
+                        TARGET_COLUMN, TEST_SIZE, RANDOM_STATE, 
+                        CATEGORICAL_COLS, NUMERICAL_COLS)
 
 def main():
-    print("--- Starting FraudGuard ML Pipeline ---\n")
+    print("--- Starting Modular FraudX ML Pipeline ---\n")
     
-    # 1. Load Data
-    print("Step 1: Loading Data...")
-    df = load_data(RAW_DATA_PATH)
-    print(f"Loaded {len(df)} samples.")
+    # 1. Ingestion
+    print("Step 1: Loading raw data...")
+    df_raw = load_data(RAW_DATA_PATH)
+    print(f"Loaded {len(df_raw)} samples.")
     
-    # 2. Preprocess Data
-    print("\nStep 2: Preprocessing Data...")
-    df_processed = preprocess_data(df)
+    # 2. Cleaning
+    print("Step 2: Cleaning data...")
+    df_clean = clean_data(df_raw)
     
-    # 3. Split Data
-    print("Step 3: Splitting into Train/Test sets...")
-    X_train, X_test, y_train, y_test = split_data(df_processed)
+    # 3. Splitting
+    print("Step 3: Splitting into train and test sets...")
+    X_train, X_test, y_train, y_test = split_data(
+        df_clean, TARGET_COLUMN, TEST_SIZE, RANDOM_STATE
+    )
     
-    # 4. Train Model
-    print("\nStep 4: Training Model...")
-    model = train_model(X_train, y_train)
+    # 4. Feature Engineering (Pipeline construction)
+    print("Step 4: Building and fitting preprocessing pipeline...")
+    pipeline = build_preprocessing_pipeline(CATEGORICAL_COLS, NUMERICAL_COLS)
+    X_train_processed = pipeline.fit_transform(X_train)
+    X_test_processed = pipeline.transform(X_test)
     
-    # 5. Evaluate Model
-    print("\nStep 5: Evaluating Model...")
-    metrics = evaluate_model(model, X_test, y_test)
+    # 5. Training
+    print("Step 5: Training model...")
+    model = train_model(X_train_processed, y_train, RANDOM_STATE)
     
-    # 6. Save Model
-    print("\nStep 6: Saving Model...")
-    save_model(model, MODEL_PATH)
+    # 6. Evaluation
+    print("Step 6: Evaluating performance...")
+    metrics = evaluate_model(model, X_test_processed, y_test)
+    
+    # Display results (orchestration layer responsibility)
+    print("\nModel Metrics:")
+    for name, value in metrics.items():
+        print(f" - {name.capitalize()}: {value:.4f}")
+    
+    # 7. Persistence
+    print(f"\nStep 7: Saving artifacts to models/ directory...")
+    save_artifacts(model, pipeline, MODEL_PATH, PIPELINE_PATH)
     
     print("\n--- Pipeline Completed Successfully ---")
 

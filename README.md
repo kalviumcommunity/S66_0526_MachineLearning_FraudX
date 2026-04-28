@@ -1,54 +1,47 @@
-# FraudGuard: Modular ML Pipeline
+# FraudX: Modular Machine Learning Project
 
-FraudGuard is a professional, modular machine learning project designed to detect fraudulent transactions. This project demonstrates clean project structuring, function-based design, and disciplined import practices in a machine learning workflow.
+FraudX is a professional machine learning system designed for detecting fraudulent transactions. It demonstrates clean project structure, function-based design, and production-ready engineering principles.
 
-## Project Structure
+## 📁 Project Structure
 
 ```text
-project_root/
+fraudX/
 ├── data/
 │   ├── raw/            # Original, immutable datasets
 │   └── processed/      # Cleaned and transformed datasets
-├── models/             # Serialized model artifacts (.pkl files)
+├── models/             # Serialized artifacts (model and preprocessor)
 ├── reports/            # Output metrics and evaluation logs
 ├── src/                # Source code directory
 │   ├── __init__.py
 │   ├── config.py       # Centralized configuration and paths
-│   ├── data_loader.py  # Data ingestion logic
-│   ├── preprocessing.py# Data cleaning and splitting
-│   ├── model.py        # Model training and persistence
-│   ├── evaluate.py     # Evaluation metrics and reporting
+│   ├── data_preprocessing.py # Loading, cleaning, and splitting
+│   ├── feature_engineering.py # Encoding and scaling pipelines
+│   ├── train.py        # Model training logic
+│   ├── evaluate.py     # Performance evaluation
+│   ├── persistence.py  # Artifact saving and loading
+│   ├── predict.py      # Inference logic
 │   └── main.py         # Orchestration script
 ├── requirements.txt    # Project dependencies
-└── README.md           # Project documentation
+└── README.md           # Documentation
 ```
 
-## Setup Instructions
+## 🚀 Getting Started
 
-1. **Clone the repository** (or navigate to this directory).
-2. **Install dependencies**:
+1. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
-3. **Run the pipeline**:
+
+2. **Run the pipeline**:
    ```bash
-   export PYTHONPATH=$PYTHONPATH:.
+   export PYTHONPATH=.
    python src/main.py
    ```
 
-## Key Engineering Principles Applied
+## 🏗️ Engineering Principles
 
-- **Single Responsibility Principle**: Each module handles a specific part of the ML lifecycle (ingestion, preprocessing, training, evaluation).
-- **Function-Based Design**: Logic is encapsulated within functions that have clear input/output contracts.
-- **Centralized Configuration**: All file paths and hyperparameters are managed in `src/config.py`.
-- **Reproducibility**: Random states are fixed throughout the pipeline to ensure consistent results.
-- **Separation of Concerns**: The orchestration layer (`main.py`) is decoupled from the core logic modules.
-
-## Scenario-Based Reflection: Circular Imports
-
-If a teammate adds preprocessing logic inside `model.py` and imports `model.py` inside `preprocessing.py`, it creates a circular import error. This happens because Python cannot resolve the dependency chain where Module A depends on Module B and vice versa.
-
-To fix this, we ensure **Dependency Direction**:
-1. Keep preprocessing logic strictly in `preprocessing.py`.
-2. `model.py` should only receive processed data; it should not call preprocessing functions directly.
-3. The orchestration layer (`main.py`) handles the flow by passing data from the preprocessing module to the model module.
+- **Modular Design**: Every stage of the ML lifecycle is isolated into its own module.
+- **Function Contracts**: All functions use type hints and descriptive docstrings.
+- **No Hidden State**: Configuration is centralized in `config.py` and passed explicitly.
+- **Reproducibility**: Random seeds are controlled via `RANDOM_STATE` in configuration.
+- **Persistence**: Both the model and the preprocessing pipeline are saved for consistent inference.
