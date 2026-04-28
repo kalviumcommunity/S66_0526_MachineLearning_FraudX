@@ -25,18 +25,47 @@ fraudX/
 └── README.md           # Documentation
 ```
 
-## 🚀 Getting Started
+## 🛠️ Environment Setup
 
-1. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+This project uses a virtual environment to ensure dependency isolation and reproducibility.
 
-2. **Run the pipeline**:
-   ```bash
-   export PYTHONPATH=.
-   python src/main.py
-   ```
+### Prerequisites
+- Python 3.9 or higher
+
+### 1. Create the Virtual Environment
+Create a dedicated environment for the project:
+```bash
+python3 -m venv venv
+```
+
+### 2. Activate the Environment
+- **macOS / Linux**:
+  ```bash
+  source venv/bin/activate
+  ```
+- **Windows**:
+  ```bash
+  venv\Scripts\activate
+  ```
+
+### 3. Install Dependencies
+Install the required ML libraries using the pinned versions in `requirements.txt`:
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Run the Pipeline
+Once the environment is active and dependencies are installed, run the orchestration script:
+```bash
+export PYTHONPATH=.
+python3 src/main.py
+```
+
+### 5. Deactivate
+When you're finished, you can exit the environment:
+```bash
+deactivate
+```
 
 ## 🏗️ Engineering Principles
 
