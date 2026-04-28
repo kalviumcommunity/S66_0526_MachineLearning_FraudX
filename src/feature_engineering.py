@@ -1,26 +1,33 @@
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 
 def build_preprocessing_pipeline(categorical_cols: list, numerical_cols: list) -> ColumnTransformer:
     """
     Construct an sklearn ColumnTransformer for feature encoding and scaling.
+    Following professional ML structure with imputation, scaling, and encoding.
     
     Args:
         categorical_cols: List of categorical column names.
         numerical_cols: List of numerical column names.
         
     Returns:
-        ColumnTransformer: Fitted or unfitted preprocessing pipeline.
+        ColumnTransformer: Preprocessing pipeline.
     """
+    # Numerical pipeline: Impute missing with median and scale
     numerical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler())
     ])
     
+    # Categorical pipeline: Impute missing with most frequent and one-hot encode
     categorical_transformer = Pipeline(steps=[
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore', drop='first'))
     ])
     
+    # Combine transformers
     preprocessor = ColumnTransformer(
         transformers=[
             ('num', numerical_transformer, numerical_cols),
