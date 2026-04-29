@@ -1,3 +1,12 @@
+"""
+config.py
+
+Responsible for:
+- Centralizing all constants and configuration variables
+- Storing file paths for raw and processed data
+- Managing model and pipeline serialization paths
+- Defining hyperparameters and random seeds
+"""
 import os
 
 # Base Directories

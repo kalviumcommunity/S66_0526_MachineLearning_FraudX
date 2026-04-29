@@ -1,3 +1,11 @@
+"""
+train.py
+
+Responsible for:
+- Initializing models
+- Training on X_train and y_train
+- Returning the trained model artifact
+"""
 from sklearn.ensemble import RandomForestClassifier
 from src.config import RANDOM_STATE
 

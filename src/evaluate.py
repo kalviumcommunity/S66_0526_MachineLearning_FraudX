@@ -1,3 +1,11 @@
+"""
+evaluate.py
+
+Responsible for:
+- Computing performance metrics (accuracy, precision, recall, f1)
+- Generating evaluation reports
+- Ensuring unbiased assessment on test data
+"""
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 def evaluate_model(model, X_test, y_test) -> dict:

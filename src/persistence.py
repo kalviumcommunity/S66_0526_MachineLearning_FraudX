@@ -1,3 +1,11 @@
+"""
+persistence.py
+
+Responsible for:
+- Serializing and saving model and preprocessing artifacts
+- Loading saved artifacts for inference
+- Managing artifact versioning and storage logic
+"""
 import joblib
 import os
 

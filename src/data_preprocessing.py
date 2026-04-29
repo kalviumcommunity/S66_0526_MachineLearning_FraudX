@@ -1,3 +1,11 @@
+"""
+data_preprocessing.py
+
+Responsible for:
+- Loading raw transaction data
+- Handling missing values and basic data cleaning
+- Splitting datasets into training and testing subsets
+"""
 import pandas as pd
 import numpy as np
 import os
