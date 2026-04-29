@@ -3,58 +3,35 @@ main.py
 
 Responsible for:
 - Orchestrating the end-to-end machine learning pipeline
-- Coordinating data flow between ingestion, preprocessing, training, and evaluation
+- Coordinating data flow between the isolated modules (loader, train, predict)
 - Serving as the primary entry point for the project
 """
-from src.data_preprocessing import load_data, clean_data, split_data
-from src.feature_engineering import build_preprocessing_pipeline
-from src.train import train_model
-from src.evaluate import evaluate_model
-from src.persistence import save_artifacts
-from src.config import (RAW_DATA_PATH, MODEL_PATH, PIPELINE_PATH, 
-                        TARGET_COLUMN, TEST_SIZE, RANDOM_STATE, 
-                        CATEGORICAL_COLS, NUMERICAL_COLS)
+import os
+from src.train import train_pipeline
+from src.predict import predict
+import pandas as pd
 
 def main():
-    print("--- Starting Modular FraudX ML Pipeline ---\n")
+    print("--- Starting Modular FraudX ML Pipeline ---")
     
-    # 1. Ingestion
-    print("Step 1: Loading raw data...")
-    df_raw = load_data(RAW_DATA_PATH)
-    print(f"Loaded {len(df_raw)} samples.")
+    # 1. Run the training pipeline
+    # This will load data, preprocess, train, evaluate, and save artifacts
+    print("\n[Phase 1] Training & Artifact Generation")
+    train_pipeline()
     
-    # 2. Cleaning
-    print("Step 2: Cleaning data...")
-    df_clean = clean_data(df_raw)
+    # 2. Run a sample inference
+    # This demonstrates the separation: predict loads its own artifacts
+    print("\n[Phase 2] Inference Demonstration")
+    sample_input = pd.DataFrame([{
+        "amount": 120.5,
+        "transaction_count": 2,
+        "velocity": 0.8,
+        "category": "food",
+        "location": "domestic"
+    }])
     
-    # 3. Splitting
-    print("Step 3: Splitting into train and test sets...")
-    X_train, X_test, y_train, y_test = split_data(
-        df_clean, TARGET_COLUMN, TEST_SIZE, RANDOM_STATE
-    )
-    
-    # 4. Feature Engineering (Pipeline construction)
-    print("Step 4: Building and fitting preprocessing pipeline...")
-    pipeline = build_preprocessing_pipeline(CATEGORICAL_COLS, NUMERICAL_COLS)
-    X_train_processed = pipeline.fit_transform(X_train)
-    X_test_processed = pipeline.transform(X_test)
-    
-    # 5. Training
-    print("Step 5: Training model...")
-    model = train_model(X_train_processed, y_train, RANDOM_STATE)
-    
-    # 6. Evaluation
-    print("Step 6: Evaluating performance...")
-    metrics = evaluate_model(model, X_test_processed, y_test)
-    
-    # Display results (orchestration layer responsibility)
-    print("\nModel Metrics:")
-    for name, value in metrics.items():
-        print(f" - {name.capitalize()}: {value:.4f}")
-    
-    # 7. Persistence
-    print(f"\nStep 7: Saving artifacts to models/ directory...")
-    save_artifacts(model, pipeline, MODEL_PATH, PIPELINE_PATH)
+    prediction = predict(sample_input)
+    print(f"Sample Input Prediction: {'Fraud' if prediction[0] == 1 else 'Legitimate'}")
     
     print("\n--- Pipeline Completed Successfully ---")
 
