@@ -25,15 +25,12 @@ fraudX/
 └── README.md           # Documentation
 ```
 
-## 🛠️ Environment Setup
+## 🚀 Project Setup Instructions
 
-This project uses a virtual environment to ensure dependency isolation and reproducibility.
+This project requires **Python 3.9+**. Follow these steps to set up a reproducible environment.
 
-### Prerequisites
-- Python 3.9 or higher
-
-### 1. Create the Virtual Environment
-Create a dedicated environment for the project:
+### 1. Create a Virtual Environment
+Isolate the project dependencies by creating a virtual environment:
 ```bash
 python3 -m venv venv
 ```
@@ -48,21 +45,27 @@ python3 -m venv venv
   venv\Scripts\activate
   ```
 
-### 3. Install Dependencies
-Install the required ML libraries using the pinned versions in `requirements.txt`:
+### 3. Install Pinned Dependencies
+Install the exact versions of the required ML libraries:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Run the Pipeline
-Once the environment is active and dependencies are installed, run the orchestration script:
+### 4. Run the Machine Learning Pipeline
+Execute the full workflow (ingestion, preprocessing, training, and evaluation):
 ```bash
 export PYTHONPATH=.
 python3 src/main.py
 ```
 
-### 5. Deactivate
-When you're finished, you can exit the environment:
+### 5. Verification
+To verify the setup, you can check the installed versions:
+```bash
+pip list
+```
+
+### 6. Deactivate
+Exit the environment when finished:
 ```bash
 deactivate
 ```
