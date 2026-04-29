@@ -77,3 +77,38 @@ deactivate
 - **No Hidden State**: Configuration is centralized in `config.py` and passed explicitly.
 - **Reproducibility**: Random seeds are controlled via `RANDOM_STATE` in configuration.
 - **Persistence**: Both the model and the preprocessing pipeline are saved for consistent inference.
+
+## 📂 Repository Structure Explanation
+
+- **`data/`**: Separated into `raw/` for immutable ground-truth data and `processed/` for cleaned features. This ensures that the original data is never accidentally modified.
+- **`src/`**: Contains the production-ready source code. Each module has a single responsibility (e.g., `train.py` only handles fitting).
+- **`models/`**: Dedicated storage for serialized model and preprocessing artifacts, keeping them separate from source code.
+- **`notebooks/`**: Reserved for exploration, visualization, and EDA. Production logic is strictly kept in `src/`.
+- **`reports/`**: Stores evaluation outputs like metric logs and plots, facilitating experiment comparison.
+- **`logs/`**: Tracks pipeline execution and experiment history to support reproducibility.
+
+## 🔄 Data Flow Mapping
+
+The project follows a unidirectional data flow to prevent leakage and ensure maintainability:
+
+1. **Ingestion**: Raw data is loaded from `data/raw/` via `data_preprocessing.py`.
+2. **Cleaning**: Initial cleaning (handling missing values) is performed, and data is split into train/test sets.
+3. **Feature Engineering**: `feature_engineering.py` constructs a `ColumnTransformer` pipeline.
+4. **Training**: `train.py` fits the model on the preprocessed training features.
+5. **Evaluation**: `evaluate.py` assesses the model on the test set and outputs metrics to `reports/`.
+6. **Persistence**: `persistence.py` saves the fitted model and pipeline to `models/`.
+7. **Prediction**: `predict.py` loads artifacts from `models/` and transforms new data for inference.
+
+## 🧠 Design Justification
+
+### Separation of Raw and Processed Data
+Raw data is treated as immutable. By keeping it separate from processed data, we ensure that any feature engineering step can be discarded or re-run without risking the loss of the original source of truth. This is critical for data auditing and reproducibility.
+
+### Separation of Notebooks and Source Code
+Notebooks are excellent for exploration but poor for version control and testing. By moving stable logic into modular Python files in `src/`, we make the codebase testable, reusable, and ready for deployment.
+
+### Artifact Management outside Source
+Models and pipelines are binaries that change every time we re-train. Keeping them in a dedicated `models/` folder prevents the `src/` directory from being bloated with non-code artifacts and allows for better versioning of model files.
+
+### Centralized Configuration (`config.py`)
+Hardcoding paths and hyperparameters across multiple files creates a maintenance nightmare. `config.py` acts as a single point of truth, making it easy to move data locations or update seeds without hunting through the entire codebase.

@@ -1,3 +1,11 @@
+"""
+feature_engineering.py
+
+Responsible for:
+- Creating transformation pipelines for numerical and categorical features
+- Handling imputation, scaling, and encoding consistently
+- Ensuring preprocessing can be saved and reused for inference
+"""
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer

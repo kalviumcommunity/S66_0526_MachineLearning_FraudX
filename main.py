@@ -1,3 +1,11 @@
+"""
+main.py
+
+Responsible for:
+- Orchestrating the end-to-end machine learning pipeline
+- Coordinating data flow between ingestion, preprocessing, training, and evaluation
+- Serving as the primary entry point for the project
+"""
 from src.data_preprocessing import load_data, clean_data, split_data
 from src.feature_engineering import build_preprocessing_pipeline
 from src.train import train_model

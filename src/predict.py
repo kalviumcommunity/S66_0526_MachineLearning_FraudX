@@ -1,3 +1,11 @@
+"""
+predict.py
+
+Responsible for:
+- Loading saved artifacts (model and pipeline)
+- Applying transformations to new data
+- Generating predictions without refitting anything
+"""
 import pandas as pd
 from src.persistence import load_artifacts
 
