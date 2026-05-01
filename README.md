@@ -139,5 +139,32 @@ The following features are used as inputs for the model:
 ### Leakage Prevention Confirmation
 - **Target Separation**: The target variable is explicitly separated from features before any preprocessing or splitting.
 - **Explicit Selection**: Only pre-defined features from `config.py` are used; we do not auto-select columns.
-- **Temporal Availability**: All used features represent information available *before* the fraud decision is made.
 - **Split Discipline**: The `train_test_split` is performed before any scaling or encoding to ensure no information from the test set influences the training process.
+- **Temporal Availability**: All used features represent information available *before* the fraud decision is made.
+
+## 🔍 Feature Distribution Analysis
+
+Before modeling, a systematic inspection of feature distributions was performed to identify skewness, outliers, and class imbalances.
+
+### 📈 Numerical Feature Behavior
+
+| Feature Name | Skewness | Observations | Recommended Transformation |
+| :--- | :--- | :--- | :--- |
+| `amount` | 1.87 (High) | Strongly right-skewed with a long tail. Most transactions are small, with a few very large ones. | **Log Transformation** or Robust Scaling recommended to stabilize variance. |
+| `transaction_count` | 0.02 (Low) | Near-perfect symmetric distribution. Well-behaved across its range (1-49). | Standard Scaling is sufficient. |
+| `velocity` | -0.003 (Low) | Near-perfect symmetric distribution. Values are evenly spread between 0 and 10. | Standard Scaling is sufficient. |
+
+### 📊 Categorical Feature Inspection
+
+- **`category`**: Distribution is balanced across all 4 levels (*retail, travel, food, online*), each representing ~25% of the data. No rare levels detected.
+- **`location`**: Almost perfectly balanced between *domestic* and *international* (~50% each). No inconsistent labeling (e.g., case typos) was found.
+
+### 🎯 Target-Based Comparison Insights
+
+Initial boxplot analysis across target classes (`is_fraud`) suggests:
+- **Predictive Signal**: `amount` shows a slightly different distribution for fraud cases, indicating it will be a strong predictor.
+- **Weak Signal**: `velocity` and `transaction_count` show significant overlap across classes, suggesting they may provide weaker individual signal but useful interaction effects.
+
+### 🛡️ Inspection Discipline
+- **No Data Leakage**: All inspection and visualization were performed on the raw training data.
+- **No Test Set Contamination**: Preprocessing decisions (like log transformation for `amount`) are identified here but will be fitted *only* on the training split during the pipeline execution.
