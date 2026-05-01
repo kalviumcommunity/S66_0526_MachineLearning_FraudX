@@ -112,3 +112,32 @@ Models and pipelines are binaries that change every time we re-train. Keeping th
 
 ### Centralized Configuration (`config.py`)
 Hardcoding paths and hyperparameters across multiple files creates a maintenance nightmare. `config.py` acts as a single point of truth, making it easy to move data locations or update seeds without hunting through the entire codebase.
+
+## 📊 Feature and Target Definition
+
+### Target Variable
+- **Column Name**: `is_fraud`
+- **Problem Type**: Binary Classification
+- **Business Meaning**: Represents whether a transaction is fraudulent (1) or legitimate (0). Predicting this correctly allows the business to prevent monetary loss and protect customers.
+- **Goal**: Correctly identify the positive class (fraud) while maintaining a low false-alarm rate for the negative class (legitimate).
+
+### Features
+The following features are used as inputs for the model:
+
+| Feature Name | Type | Description | Why it's valid at prediction time |
+| :--- | :--- | :--- | :--- |
+| `amount` | Numerical | Transaction amount in currency | Known at the moment of transaction |
+| `transaction_count` | Numerical | Recent number of transactions | Captured in the real-time session |
+| `velocity` | Numerical | Frequency of transactions over time | Calculated from existing system logs |
+| `category` | Categorical | Merchant category (e.g., travel, food) | Selected/Known at checkout |
+| `location` | Categorical | Transaction location (domestic/intl) | Captured from IP/Location services |
+
+### Excluded Columns
+- No unique identifiers like `CustomerID` or `TransactionID` were present in this specific dataset. If they existed, they would be excluded to prevent the model from memorizing specific rows (overfitting).
+- Any post-outcome variables (like `InvestigationReason`) are strictly excluded to prevent data leakage.
+
+### Leakage Prevention Confirmation
+- **Target Separation**: The target variable is explicitly separated from features before any preprocessing or splitting.
+- **Explicit Selection**: Only pre-defined features from `config.py` are used; we do not auto-select columns.
+- **Temporal Availability**: All used features represent information available *before* the fraud decision is made.
+- **Split Discipline**: The `train_test_split` is performed before any scaling or encoding to ensure no information from the test set influences the training process.

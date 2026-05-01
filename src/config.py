@@ -21,8 +21,18 @@ REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 # Model Parameters
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
+
+# Target Definition
 TARGET_COLUMN = "is_fraud"
 
-# Features to use
-NUMERICAL_COLS = ["amount", "transaction_count", "velocity"]
-CATEGORICAL_COLS = ["category", "location"]
+# Numerical Features
+NUMERICAL_FEATURES = ["amount", "transaction_count", "velocity"]
+
+# Categorical Features
+CATEGORICAL_FEATURES = ["category", "location"]
+
+# Excluded Columns
+EXCLUDED_COLUMNS = [] # No identifiers like CustomerID in this small dataset
+
+# Derived
+ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES

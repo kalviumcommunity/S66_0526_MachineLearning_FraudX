@@ -13,7 +13,7 @@ from src.feature_engineering import build_preprocessing_pipeline
 from src.evaluate import evaluate_model
 from src.persistence import save_artifacts
 from src.config import (RAW_DATA_PATH, MODEL_PATH, PIPELINE_PATH, 
-                        RANDOM_STATE, CATEGORICAL_COLS, NUMERICAL_COLS)
+                        RANDOM_STATE, CATEGORICAL_FEATURES, NUMERICAL_FEATURES)
 
 def train_pipeline():
     """
@@ -27,7 +27,7 @@ def train_pipeline():
     X_train, X_test, y_train, y_test = split_data(df_clean)
     
     # 3. Feature Engineering (Fit only on train)
-    pipeline = build_preprocessing_pipeline(CATEGORICAL_COLS, NUMERICAL_COLS)
+    pipeline = build_preprocessing_pipeline(CATEGORICAL_FEATURES, NUMERICAL_FEATURES)
     X_train_processed = pipeline.fit_transform(X_train)
     X_test_processed = pipeline.transform(X_test)
     
