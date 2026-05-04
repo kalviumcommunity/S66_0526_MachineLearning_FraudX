@@ -230,3 +230,28 @@ We compared two versions of the model:
 
 ---
 *Run the demonstration yourself using:* `python3 src/leakage_demo.py`
+
+## ⚖️ Numerical Feature Scaling
+
+Numerical features in the FraudX dataset exist on different scales (e.g., `amount` can be in the hundreds, while `velocity` is a small ratio). To ensure stable optimization and consistent feature contribution, we implement standardization using `StandardScaler`.
+
+### 🛠️ Implementation Details
+- **Features Scaled**: `amount`, `transaction_count`, `velocity`.
+- **Method**: `StandardScaler` (Standardization).
+- **Transformation Formula**: $z = (x - \mu) / \sigma$ (resulting in Mean=0, Std=1).
+
+### 🧠 Strategic Justification
+1. **Model Choice**: We are using a `RandomForestClassifier`. While tree-based models are scale-invariant, we apply scaling to:
+    - Maintain numerical stability in the preprocessing pipeline.
+    - Ensure compatibility if we decide to switch to distance-based models (like SVM or kNN) or linear models (like Logistic Regression) in the future.
+    - Provide a standardized range for feature importance comparisons.
+2. **Leakage Prevention**:
+    - **Split-First Policy**: Scaling is applied *only* after the train-test split.
+    - **Fit-Transform Discipline**: The `StandardScaler` is `fit()` exclusively on the training set. The test set is transformed using the parameters (mean and variance) learned from the training data, ensuring no information from the test set leaks into the training process.
+3. **Artifact Persistence**: The fitted scaler is part of the `ColumnTransformer` saved in `models/preprocessor.pkl`. This ensures that during inference, new data is scaled using the exact same parameters used during training.
+
+### 🚫 Categorical Handling
+Categorical features (`category`, `location`) are **not scaled**. They are processed via `OneHotEncoder`, which transforms them into binary flags (0 or 1). Scaling these binary flags would distort their logical meaning.
+
+### 📊 Verification
+After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
