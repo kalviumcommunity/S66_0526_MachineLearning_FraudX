@@ -168,3 +168,27 @@ Initial boxplot analysis across target classes (`is_fraud`) suggests:
 ### 🛡️ Inspection Discipline
 - **No Data Leakage**: All inspection and visualization were performed on the raw training data.
 - **No Test Set Contamination**: Preprocessing decisions (like log transformation for `amount`) are identified here but will be fitted *only* on the training split during the pipeline execution.
+
+## 📊 Data Splitting Strategy
+
+A rigorous data splitting protocol is implemented to ensure that the model evaluation is honest, reproducible, and reflective of real-world performance.
+
+### ⚙️ Split Configuration
+- **Split Ratio**: 80% Training | 20% Testing
+- **Random State**: `42` (Ensures reproducibility across environments)
+- **Stratification**: **Applied** (`stratify=y`)
+- **Strategy Type**: Random Stratified Split (Appropriate for non-temporal classification)
+
+### ⚖️ Strategy Justification
+1. **Sufficient Learning Capacity**: The 80% training allocation provides enough examples for the `RandomForestClassifier` to identify the non-linear boundaries between legitimate and fraudulent transactions.
+2. **Statistical Significance**: The 20% test set is large enough to provide stable performance metrics, ensuring that our accuracy and recall scores are not due to random chance.
+3. **Preserving Class Balance**: Fraud datasets are typically imbalanced. By using **Stratified Splitting**, we guarantee that the 10% fraud rate in the original data is preserved in both the training and testing sets, preventing evaluation bias.
+4. **Real-World Simulation**: The test set acts as a proxy for unseen future data. By isolating it before any preprocessing, we simulate a production scenario where the model must handle data it has never encountered.
+
+### 🚫 Leakage Prevention Measures
+- **Split-First Policy**: The `train_test_split` is executed **before** any feature engineering (scaling, encoding, or imputation).
+- **Fitting Discipline**: Preprocessing pipelines are `fit()` only on the training set and merely `transform()` the test set. This prevents "future information" (like the global mean or variance) from leaking into the training process.
+- **Validation Prints**: The pipeline explicitly prints shapes and class distributions at runtime to verify the integrity of the split.
+
+---
+*This strategy ensures that when we say the model is 95% accurate, it is a measurement of learning, not memorization.*
