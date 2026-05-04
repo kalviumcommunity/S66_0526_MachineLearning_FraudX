@@ -192,3 +192,26 @@ A rigorous data splitting protocol is implemented to ensure that the model evalu
 
 ---
 *This strategy ensures that when we say the model is 95% accurate, it is a measurement of learning, not memorization.*
+
+## 🛡️ Data Leakage Demonstration
+
+As part of the engineering discipline, we conducted a controlled experiment to demonstrate the impact of **Target Leakage** and the importance of guarding the prediction boundary.
+
+### 🧪 Experiment Setup
+We compared two versions of the model:
+1. **Leaky Version**: Included a feature (`investigation_flag`) that is only available *after* a fraud investigation is complete.
+2. **Honest Version**: Used only valid predictors available at the *moment of transaction* (`amount`, `velocity`, `transaction_count`).
+
+### 📊 Performance Comparison
+| Metric | Leaky Model (Invalid) | Honest Model (Valid) | Impact of Leakage |
+| :--- | :--- | :--- | :--- |
+| **Accuracy** | 100% | 91.0% | +9.0% (Artificial) |
+| **F1-Score** | 1.00 | 0.00 | +1.00 (Artificial) |
+
+### 🔍 Analysis & Reflection
+- **Why the Leaky Model Failed**: The model achieved perfect scores not because it learned to detect fraud, but because it "cheated" by looking at the outcome (the investigation flag). In a real-world deployment, this flag would be missing for all new transactions, rendering the model useless.
+- **The Prediction Moment Test**: We verified that `investigation_flag` fails the "Prediction Moment Test" because it does not exist at the exact second a transaction is processed.
+- **Discipline**: By removing target-derived features and splitting data before any preprocessing, we ensure that our evaluation metrics reflect actual predictive power rather than hindsight bias.
+
+---
+*Run the demonstration yourself using:* `python3 src/leakage_demo.py`
