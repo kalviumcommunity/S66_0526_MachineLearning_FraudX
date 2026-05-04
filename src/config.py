@@ -36,3 +36,6 @@ EXCLUDED_COLUMNS = [] # No identifiers like CustomerID in this small dataset
 
 # Derived
 ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES
+
+# Validation: Ensure target is never in the feature list
+assert TARGET_COLUMN not in ALL_FEATURES, "Configuration Error: Target variable leaked into ALL_FEATURES list!"

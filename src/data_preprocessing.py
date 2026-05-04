@@ -7,7 +7,9 @@ Responsible for:
 """
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from src.config import RANDOM_STATE, TEST_SIZE, TARGET_COLUMN, ALL_FEATURES
+from src.config import (RANDOM_STATE, TEST_SIZE, TARGET_COLUMN, 
+                        ALL_FEATURES, NUMERICAL_FEATURES, CATEGORICAL_FEATURES, 
+                        EXCLUDED_COLUMNS)
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -16,7 +18,8 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df.fillna(0)
 
 def separate_features_target(df: pd.DataFrame, target_column: str = TARGET_COLUMN, 
-                             feature_columns: list = ALL_FEATURES) -> tuple:
+                             feature_columns: list = ALL_FEATURES,
+                             excluded_columns: list = EXCLUDED_COLUMNS) -> tuple:
     """
     Explicitly separate features and target with validation.
     
@@ -24,6 +27,7 @@ def separate_features_target(df: pd.DataFrame, target_column: str = TARGET_COLUM
         df: Input DataFrame.
         target_column: Name of the target variable.
         feature_columns: List of valid feature columns.
+        excluded_columns: List of columns to be strictly excluded.
         
     Returns:
         tuple: (X, y)
@@ -34,14 +38,20 @@ def separate_features_target(df: pd.DataFrame, target_column: str = TARGET_COLUM
     # 2. Validation: Target not in features (Prevent Leakage)
     assert target_column not in feature_columns, "Target variable leaked into feature list!"
     
-    # 3. Separation
+    # 3. Validation: Excluded columns not in features
+    for col in excluded_columns:
+        assert col not in feature_columns, f"Excluded column '{col}' found in feature list!"
+    
+    # 4. Separation
     X = df[feature_columns]
     y = df[target_column]
     
-    # 4. Verification
-    print(f"Features shape: {X.shape}")
-    print(f"Target shape: {y.shape}")
-    print(f"Target distribution:\n{y.value_counts(normalize=True)}")
+    # 5. Feature Type Verification (Assignment 5.18 Requirement)
+    print("\n--- Feature Selection Verification ---")
+    print(f"Numerical features: {len(NUMERICAL_FEATURES)}")
+    print(f"Categorical features: {len(CATEGORICAL_FEATURES)}")
+    print(f"Total features: {len(feature_columns)}")
+    print(f"Target variable: {target_column}")
     
     return X, y
 
