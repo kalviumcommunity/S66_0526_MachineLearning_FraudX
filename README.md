@@ -113,34 +113,49 @@ Models and pipelines are binaries that change every time we re-train. Keeping th
 ### Centralized Configuration (`config.py`)
 Hardcoding paths and hyperparameters across multiple files creates a maintenance nightmare. `config.py` acts as a single point of truth, making it easy to move data locations or update seeds without hunting through the entire codebase.
 
-## 📊 Feature and Target Definition
+## 📊 Feature Type Definition
 
-### Target Variable
+A disciplined approach to feature selection was used to categorize variables based on their conceptual meaning and prediction-time availability.
+
+### 🎯 Target Variable
 - **Column Name**: `is_fraud`
-- **Problem Type**: Binary Classification
-- **Business Meaning**: Represents whether a transaction is fraudulent (1) or legitimate (0). Predicting this correctly allows the business to prevent monetary loss and protect customers.
-- **Goal**: Correctly identify the positive class (fraud) while maintaining a low false-alarm rate for the negative class (legitimate).
+- **Type**: Binary Classification (Supervised)
+- **Business Meaning**: Indicates whether a transaction is fraudulent (1) or legitimate (0). Detecting this helps the business prevent financial loss and secure customer trust.
 
-### Features
-The following features are used as inputs for the model:
+### 🔢 Numerical Features
+These features represent measurable quantities where arithmetic relationships carry significant meaning.
 
-| Feature Name | Type | Description | Why it's valid at prediction time |
+| Feature Name | Reason for Numerical Type | Scaling Strategy |
+| :--- | :--- | :--- |
+| `amount` | Represents currency magnitude; continuous value. | `StandardScaler` (Z-score normalization) |
+| `transaction_count` | Discrete integer count of recent activity. | `StandardScaler` |
+| `velocity` | Calculated frequency ratio; continuous value. | `StandardScaler` |
+
+- **Scaling Justification**: All numerical features are scaled to a mean of 0 and variance of 1 to ensure that features with larger ranges (like `amount`) do not dominate the distance-based calculations of the model.
+
+### 🗂️ Categorical Features
+These features represent discrete labels or groups with no inherent mathematical magnitude.
+
+| Feature Name | Category Type | Reason for Categorical Type | Encoding Strategy |
 | :--- | :--- | :--- | :--- |
-| `amount` | Numerical | Transaction amount in currency | Known at the moment of transaction |
-| `transaction_count` | Numerical | Recent number of transactions | Captured in the real-time session |
-| `velocity` | Numerical | Frequency of transactions over time | Calculated from existing system logs |
-| `category` | Categorical | Merchant category (e.g., travel, food) | Selected/Known at checkout |
-| `location` | Categorical | Transaction location (domestic/intl) | Captured from IP/Location services |
+| `category` | Nominal | Represents merchant types (travel, food, etc.). No natural order. | One-Hot Encoding (drop first) |
+| `location` | Nominal | Represents geographic context (domestic/intl). No natural order. | One-Hot Encoding (drop first) |
 
-### Excluded Columns
-- No unique identifiers like `CustomerID` or `TransactionID` were present in this specific dataset. If they existed, they would be excluded to prevent the model from memorizing specific rows (overfitting).
-- Any post-outcome variables (like `InvestigationReason`) are strictly excluded to prevent data leakage.
+- **Encoding Justification**: One-Hot Encoding is used to transform labels into binary flags, allowing the model to interpret categories without assuming any artificial rank or order.
 
-### Leakage Prevention Confirmation
-- **Target Separation**: The target variable is explicitly separated from features before any preprocessing or splitting.
-- **Explicit Selection**: Only pre-defined features from `config.py` are used; we do not auto-select columns.
-- **Split Discipline**: The `train_test_split` is performed before any scaling or encoding to ensure no information from the test set influences the training process.
-- **Temporal Availability**: All used features represent information available *before* the fraud decision is made.
+### 🚫 Excluded Columns
+- **Identifiers**: No `CustomerID` or `TransactionID` are used, as they lead to overfitting (memorizing specific rows).
+- **Post-Outcome Variables**: Any data derived after the fraud decision (e.g., `investigation_notes`) is excluded to prevent target leakage.
+
+### 🛡️ Edge Case Handling
+- **Binary Columns**: While `is_fraud` is the target, any binary features (like `location` once encoded) are treated as categorical flags.
+- **High-Cardinality**: Features like `ZipCode` or `Address` are not present; if they were, they would be handled via target encoding or clustering to prevent dimensionality explosion.
+- **Timestamps**: No raw timestamps are used; any temporal information is pre-calculated as `velocity` before model ingestion.
+
+### 🧪 Validation Discipline
+- **Explicit Selection**: Features are manually defined in `config.py`, never auto-detected.
+- **Leakage Assertion**: The code enforces `assert TARGET_COLUMN not in ALL_FEATURES`.
+- **Exclusion Check**: Excluded columns are strictly validated to ensure they never enter the training pipeline.
 
 ## 🔍 Feature Distribution Analysis
 
