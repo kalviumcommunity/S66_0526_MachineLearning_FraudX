@@ -9,7 +9,7 @@ Successfully completed all 6 assignments from the Kalvium Machine Learning Fraud
 3. ✅ **Assignment 3**: Evaluating Regression Models Using MAE
 4. ✅ **Assignment 4**: Evaluating Regression Models Using MSE and R²
 5. ✅ **Assignment 5**: Training a Logistic Regression Classification Model
-6. ✅ **Assignment 6**: Evaluating Classification Models Using Accuracy
+
 
 ---
 
