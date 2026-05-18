@@ -7,22 +7,33 @@ FraudX is a professional machine learning system designed for detecting fraudule
 ```text
 fraudX/
 ├── data/
-│   ├── raw/            # Original, immutable datasets
-│   └── processed/      # Cleaned and transformed datasets
-├── models/             # Serialized artifacts (model and preprocessor)
-├── reports/            # Output metrics and evaluation logs
-├── src/                # Source code directory
+│   ├── raw/                          # Original, immutable datasets
+│   └── processed/                    # Cleaned and transformed datasets
+├── docs/
+│   └── BASELINE.md                   # Baseline + class-imbalance write-up
+├── models/                           # Serialized artifacts
+│   ├── fraud_model.pkl               # Trained RandomForestClassifier
+│   ├── preprocessor.pkl              # Fitted ColumnTransformer
+│   ├── baseline_most_frequent.pkl    # DummyClassifier baseline (majority class)
+│   └── baseline_stratified.pkl       # DummyClassifier baseline (stratified sampling)
+├── reports/                          # Output metrics, plots, evaluation logs
+├── src/                              # Source code directory
 │   ├── __init__.py
-│   ├── config.py       # Centralized configuration and paths
-│   ├── data_preprocessing.py # Loading, cleaning, and splitting
-│   ├── feature_engineering.py # Encoding and scaling pipelines
-│   ├── train.py        # Model training logic
-│   ├── evaluate.py     # Performance evaluation
-│   ├── persistence.py  # Artifact saving and loading
-│   ├── predict.py      # Inference logic
-│   └── main.py         # Orchestration script
-├── requirements.txt    # Project dependencies
-└── README.md           # Documentation
+│   ├── config.py                     # Centralized configuration and paths
+│   ├── data_loader.py                # CSV loading with validation
+│   ├── data_preprocessing.py         # Cleaning + train-test split (no leakage)
+│   ├── feature_engineering.py        # ColumnTransformer (scaler + encoder)
+│   ├── baseline.py                   # DummyClassifier baselines (most_frequent + stratified)
+│   ├── comparison.py                 # Side-by-side baseline vs main-model comparison
+│   ├── train.py                      # Model training and artifact persistence
+│   ├── evaluate.py                   # Performance evaluation (incl. per-class metrics)
+│   ├── persistence.py                # Artifact saving and loading
+│   ├── predict.py                    # Inference logic (transform-only, no refit)
+│   ├── leakage_demo.py               # Target leakage demonstration
+│   └── eda.py                        # Exploratory plots
+├── main.py                           # Orchestration entry point
+├── requirements.txt                  # Project dependencies
+└── README.md                         # Documentation
 ```
 
 ## 🚀 Project Setup Instructions
@@ -52,10 +63,16 @@ pip install -r requirements.txt
 ```
 
 ### 4. Run the Machine Learning Pipeline
-Execute the full workflow (ingestion, preprocessing, training, and evaluation):
+Execute the full workflow (ingestion, preprocessing, training, evaluation, and baseline comparison):
 ```bash
 export PYTHONPATH=.
-python3 src/main.py
+python3 main.py
+```
+
+To run just the baseline comparison (fits baselines + main model, prints per-class metrics, saves baseline artifacts):
+```bash
+export PYTHONPATH=.
+python3 src/comparison.py
 ```
 
 ### 5. Verification
@@ -255,3 +272,68 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 🧪 Baseline Comparison and Class-Imbalance Evaluation
+
+The FraudX dataset is heavily imbalanced (~91% non-fraud / ~9% fraud). On data like this, accuracy is structurally misleading: a model that always predicts non-fraud achieves ~91% accuracy without learning anything. To make this trap visible at runtime, the project ships a baseline comparison harness in [`src/comparison.py`](src/comparison.py) that fits two `sklearn.dummy.DummyClassifier` baselines on the same training data as the main `RandomForestClassifier` and evaluates everything on the same held-out test set with per-class metrics.
+
+The long-form rationale, leakage discipline, scenario-question answers, and worked numbers live in [`docs/BASELINE.md`](docs/BASELINE.md). The short version follows.
+
+### 🛠️ What gets compared
+
+| Model                     | Strategy                                                       |
+| ------------------------- | -------------------------------------------------------------- |
+| `baseline_most_frequent`  | `DummyClassifier(strategy="most_frequent")` — predicts class 0 always. The canonical "is my model actually meaningful?" lower bound. |
+| `baseline_stratified`     | `DummyClassifier(strategy="stratified", random_state=42)` — samples predictions from the training class prior. A non-trivial chance baseline. |
+| `RandomForestClassifier`  | The trained main model (same hyperparameters as `src/train.py`). |
+
+All three are fit on the **same** `X_train` / `y_train` and evaluated on the **same** `X_test` / `y_test`, with identical metrics. Identical-support assertions in [`src/comparison.py`](src/comparison.py) guarantee the test set wasn't accidentally modified between runs.
+
+### 📐 Metrics
+
+Per the assignment's "Important Guidelines" ("Report per-class metrics if working on imbalanced classification"), [`src/evaluate.py::evaluate_detailed`](src/evaluate.py) returns:
+- Overall accuracy and **balanced accuracy** (accuracy averaged over the two classes — does NOT collapse to majority-class behaviour).
+- Per-class precision / recall / F1 / support for class 0 (non-fraud) AND class 1 (fraud).
+- Raw confusion matrix.
+
+### 📊 Headline result (real numbers from this repo)
+
+Test set: 200 samples (182 class 0 / 18 class 1).
+
+| Model                       | Accuracy | Balanced Acc. | F1 (class 1, fraud) | Recall (class 1) |
+| --------------------------- | -------: | ------------: | ------------------: | ---------------: |
+| `baseline_most_frequent`    |   91.0 % |        50.0 % |               0.0 % |            0.0 % |
+| `baseline_stratified`       |   83.0 % |        45.6 % |               0.0 % |            0.0 % |
+| `RandomForestClassifier`    |   91.0 % |        50.0 % |               0.0 % |            0.0 % |
+
+**Reading**: the trained model and the `most_frequent` baseline get the same 91% accuracy because they both predict non-fraud for every sample. The trained model does **not** yet meaningfully beat the baseline on the minority-class metrics that matter for fraud detection. This is exactly the failure mode this module is designed to surface; future iterations (`class_weight="balanced"`, SMOTE, threshold tuning) should be measured against this same baseline harness.
+
+### 🚫 Leakage Prevention
+
+The same discipline applied to the normalisation module applies here:
+
+- `train_test_split` runs **before** any classifier is constructed.
+- Baselines are `.fit()` on `X_train` / `y_train` only; never on the full dataset.
+- Identical `X_test` / `y_test` is used for the baselines and the main model (asserted at runtime).
+- Heuristic rules (here, the trained majority-class frequency) are derived from training data exclusively.
+
+### 📦 Persistence
+
+Two fitted baseline artifacts are saved by `src/comparison.py`:
+- `models/baseline_most_frequent.pkl`
+- `models/baseline_stratified.pkl`
+
+Loaded for inspection via:
+```python
+from src.baseline import load_baseline
+clf = load_baseline("most_frequent")
+```
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/comparison.py     # just the comparison
+# OR
+python3 main.py               # full pipeline (Phase 3 runs the comparison)
+```

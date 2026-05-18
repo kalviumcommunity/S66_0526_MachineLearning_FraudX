@@ -16,6 +16,9 @@ RAW_DATA_PATH = os.path.join(DATA_DIR, "raw", "fraud_data.csv")
 PROCESSED_DATA_PATH = os.path.join(DATA_DIR, "processed", "processed_fraud_data.csv")
 MODEL_PATH = os.path.join(BASE_DIR, "models", "fraud_model.pkl")
 PIPELINE_PATH = os.path.join(BASE_DIR, "models", "preprocessor.pkl")
+# Baseline model artifacts (Assignment 5.x — Baseline + Class-Imbalance Comparison)
+BASELINE_MOST_FREQUENT_PATH = os.path.join(BASE_DIR, "models", "baseline_most_frequent.pkl")
+BASELINE_STRATIFIED_PATH = os.path.join(BASE_DIR, "models", "baseline_stratified.pkl")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 
 # Model Parameters
