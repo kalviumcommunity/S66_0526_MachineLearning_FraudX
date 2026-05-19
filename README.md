@@ -255,3 +255,58 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 💾 Model Persistence with Pickle
+
+The project includes a model-persistence module in [`src/model_persistence.py`](src/model_persistence.py) that exercises the full **save → fresh-process load → byte-identical verify** cycle on the capstone-selected pipeline from PR #25 (`RF + RandomOverSampler` inside `imblearn.Pipeline`). Long-form reasoning, the four mandatory reflection answers, and security/versioning considerations live in [`docs/MODEL_PERSISTENCE.md`](docs/MODEL_PERSISTENCE.md).
+
+### 🛠️ Why this is rigorous
+
+A naive "save + load in the same process" test is weak — the loading script's interpreter already has the relevant modules / classes imported, so `pickle.load` can succeed even when a true fresh-process load would fail. The module here uses two scripts:
+
+| Script | Role |
+| :--- | :--- |
+| [`src/model_persistence.py`](src/model_persistence.py) | Trains, saves, invokes the verifier as a SUBPROCESS, reads its JSON output, asserts byte-identical predictions. |
+| [`src/load_and_verify.py`](src/load_and_verify.py) | Runs in a separate `python3` subprocess (no shared in-memory state). `pickle.load`s the .pkl, predicts on the same X_test (deterministic via `random_state=42` + `stratify=y`), writes metrics + predictions to JSON. |
+
+That subprocess is the closest analog to "restart the kernel and load" within a Python script workflow.
+
+### 📊 Verification result (real run)
+
+Original (in-memory) and Loaded (subprocess) report **identical** numbers:
+
+| Metric | Value |
+| :--- | ---: |
+| Accuracy | 89.00 % |
+| Precision (class 1) | 16.67 % |
+| Recall (class 1) | 5.56 % |
+| F1 (class 1) | 8.33 % |
+| Confusion matrix | TN=177, FP=5, FN=17, TP=1 |
+
+Verification asserts:
+- `np.array_equal(original_predictions, loaded_predictions)` → **True**
+- Metrics match within `np.isclose` tolerance → **True**
+
+### 📝 Mandatory reflection (Part 4)
+
+Four questions answered in full in [`docs/MODEL_PERSISTENCE.md` §4](docs/MODEL_PERSISTENCE.md#4-part-4--reflection-required). In short:
+
+1. **What is serialization?** Converting a live Python object (class identity + state) into a byte stream that can be written to disk or sent over a network. Deserialisation reverses the process in a new process.
+2. **Why save the whole pipeline?** Because the trained classifier expects features that were produced by the *same* preprocessor fitted during training. Saving only the classifier and re-fitting the preprocessor at load time silently drifts inference predictions.
+3. **Pickle security risks?** `pickle.load` can execute arbitrary code via the `__reduce__` protocol. Never load `.pkl` files from untrusted sources. Mitigations: signed artifacts, sandboxing, safer formats (ONNX) for cross-trust loading.
+4. **Library version mismatch?** Pickle records class identity but not implementation. A sklearn version bump can produce silently wrong predictions OR loud `AttributeError`. Mitigations: pin versions in `requirements.txt`, store metadata sidecar, refuse to load on mismatch, re-train on major upgrades.
+
+### 📦 Artifacts
+
+- `models/persisted_pipeline.pkl` — the fitted capstone pipeline (~2 MB).
+- `reports/load_and_verify.json` — the subprocess's metrics + predictions for the orchestrator to diff against.
+
+### 🏃 How to run
+
+```bash
+pip install -r requirements.txt
+export PYTHONPATH=.
+python3 src/model_persistence.py    # train + save + verify
+# OR
+python3 main.py                      # full pipeline (Phase 3 runs the persistence module)
+```
