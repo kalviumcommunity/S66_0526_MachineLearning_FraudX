@@ -255,3 +255,63 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 🕵️ Data Leakage Detection and Pipeline Correction
+
+The project includes a leakage-audit demonstration in [`src/leakage_correction.py`](src/leakage_correction.py) that runs TWO classification workflows on the same train/test split — one stacks **four** layered leakage types, the other is the correct single `Pipeline(ColumnTransformer + SelectKBest + RandomForestClassifier)` replacement. Identical scoring metric and identical CV configuration are used so the comparison is honest. Long-form rationale, the assignment's mandatory "Explain the Leakage" + "Final Conclusion" sections, and verbatim answers to all five scenario questions live in [`docs/LEAKAGE_CORRECTION.md`](docs/LEAKAGE_CORRECTION.md).
+
+### 🛠️ Four layered leakage types
+
+| # | Leakage | Where it lives | What it does |
+| :-: | :--- | :--- | :--- |
+| 1 | Scaler | `StandardScaler().fit_transform(X_full[NUMERICAL_FEATURES])` | Mean/variance learned over train + test rows. |
+| 2 | Imputer | `SimpleImputer(median).fit_transform(X_full)` | Median over full dataset (structural even with no NaNs). |
+| 3 | Encoder | `OneHotEncoder().fit_transform(X_full[CATEGORICAL_FEATURES])` | Category vocabulary admits test-only categories. |
+| 4 | Feature selector | `SelectKBest(f_classif, k=6).fit(X_full_processed, y_full)` | Feature ranking computed against the FULL label vector (including test labels). |
+
+Then `cross_val_score(model, X_train_processed_selected, y_train, cv=5)` reports a CV whose folds have all four leakage paths baked in.
+
+### 📊 Headline result (real numbers from this repo)
+
+Test set: 200 samples (182 class 0 / 18 class 1). Scoring metric: **F1 on the fraud (positive) class** — identical for both workflows.
+
+| Workflow                       | Train F1 | Test F1 | CV mean F1 | CV std |
+| :----------------------------- | -------: | ------: | ---------: | -----: |
+| Incorrect (4 leakage types)    |   100.0% |    8.0% | **4.71 %** |  5.76% |
+| Correct (Pipeline)             |   100.0% |    8.0% | **0.00 %** |  0.00% |
+
+**The leakage signal is 4.71 percentage points of CV F1** — the gap between "we have learning signal, ship it" (what the incorrect workflow would claim) and "we have nothing on this minority class, keep iterating" (the honest pipeline truth). The two workflows happen to coincide on test F1 in this random split, but the CV mean — the metric practitioners watch during iteration — is materially inflated by the leakage.
+
+### 🔍 Where leakage shows up most visibly
+
+The 4th leakage type (`SelectKBest`) is the most pernicious because it survives casual code review. The incorrect workflow's selector chose feature indices `[0, 1, 3, 4, 5, 6]` over the global feature space; the pipeline-side selector (fit on training rows only) chose `['num__amount', 'num__transaction_count', 'cat__category_online', 'cat__category_retail', 'cat__category_travel', 'cat__location_international']`. The two selectors can disagree, and any disagreement is the visible signature of feature-selection leakage.
+
+### 📝 Reflection (mandatory in PR + docs)
+
+Full "Explain the Leakage" answers in [`docs/LEAKAGE_CORRECTION.md` §6](docs/LEAKAGE_CORRECTION.md#6-explain-the-leakage-part-1-step-3--required-4-6-lines). In short: four `fit_transform`s on the full dataset before the train/test split was honoured caused training rows to be normalised, imputed, encoded, and feature-selected using information drawn from test rows (including test labels); cross-validation folds inside the incorrect workflow were therefore not independent; the test distribution influenced training data through statistics + label-aware feature ranking; the evaluation is unreliable for deployment because the 4.71% CV signal is a contamination artefact that disappears in production.
+
+### 🚫 Leakage prevention — how the correct workflow enforces it
+
+- `train_test_split` runs *before* any model, transformer, or selector is constructed.
+- A single `Pipeline(ColumnTransformer + SelectKBest + RandomForestClassifier)` wraps every learnable step.
+- `cross_val_score(pipeline, X_train, y_train, cv=5)` so sklearn clones the pipeline per fold; the clone's preprocessing, feature selection, and classifier all fit on that fold's training rows only.
+- Test set evaluated **once**, with the same `f1` metric used by the CV.
+
+### 📦 Persistence
+
+`models/leakage_correction_pipeline.pkl` — fitted `Pipeline(preprocessor + SelectKBest + RandomForestClassifier)`. Reusable at inference:
+
+```python
+import joblib
+pipeline = joblib.load("models/leakage_correction_pipeline.pkl")
+predictions = pipeline.predict(new_data_df)   # preprocessing + selection automatic
+```
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/leakage_correction.py    # just the demo
+# OR
+python3 main.py                      # full pipeline (Phase 3 runs the demo)
+```
