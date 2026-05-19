@@ -6,6 +6,9 @@ Responsible for:
 - Storing file paths for raw and processed data
 - Managing model and pipeline serialization paths
 - Defining hyperparameters and random seeds
+
+This is the consolidated configuration for the full FraudX system —
+every prior module's path constants are gathered here.
 """
 import os
 
@@ -14,6 +17,9 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RAW_DATA_PATH = os.path.join(DATA_DIR, "raw", "fraud_data.csv")
 PROCESSED_DATA_PATH = os.path.join(DATA_DIR, "processed", "processed_fraud_data.csv")
+REPORTS_DIR = os.path.join(BASE_DIR, "reports")
+
+# Model + preprocessor artifacts (existing project artifacts)
 MODEL_PATH = os.path.join(BASE_DIR, "models", "fraud_model.pkl")
 PIPELINE_PATH = os.path.join(BASE_DIR, "models", "preprocessor.pkl")
 # Standalone fitted MinMaxScaler artifact (Assignment 5.18 requirement)
@@ -41,3 +47,16 @@ ALL_FEATURES = NUMERICAL_FEATURES + CATEGORICAL_FEATURES
 
 # Validation: Ensure target is never in the feature list
 assert TARGET_COLUMN not in ALL_FEATURES, "Configuration Error: Target variable leaked into ALL_FEATURES list!"
+
+# Feature-value ranges for the Streamlit app's input widgets (final system).
+# Derived from the training-set distributions; used by app.py to constrain
+# the number_input widgets to realistic ranges.
+FEATURE_VALUE_RANGES = {
+    "amount":            {"min": 0.0,  "max": 1000.0, "default": 100.0,  "step": 1.0},
+    "transaction_count": {"min": 1,    "max": 100,    "default": 5,      "step": 1},
+    "velocity":          {"min": 0.0,  "max": 10.0,   "default": 1.0,    "step": 0.1},
+}
+
+# Allowed categorical values (also used by Streamlit selectbox widgets).
+CATEGORY_OPTIONS = ["food", "online", "retail", "travel"]
+LOCATION_OPTIONS = ["domestic", "international"]

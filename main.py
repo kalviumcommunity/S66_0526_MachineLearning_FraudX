@@ -1,10 +1,28 @@
 """
 main.py
 
-Responsible for:
-- Orchestrating the end-to-end machine learning pipeline
-- Coordinating data flow between the isolated modules (loader, train, predict)
-- Serving as the primary entry point for the project
+Final-system orchestrator for the FraudX project.
+
+Runs the canonical training + inference workflow AND builds the
+deployment artifacts (models/pipeline.joblib + pipeline_metadata.json)
+that `app.py` reads. Every prior module's code (PRs #15-#27) is
+available in `src/` for direct invocation:
+
+    python3 src/normalization.py        # PR #15  — MinMaxScaler workflow
+    python3 src/comparison.py           # PR #17  — baseline vs RF
+    python3 src/tuning.py               # PR #18  — RandomizedSearchCV
+    python3 src/pipeline_demo.py        # PR #19  — Pipeline integration
+    python3 src/leakage_correction.py   # PR #20  — 4-leakage audit
+    python3 src/imbalance_analysis.py   # PR #21  — imbalance diagnosis
+    python3 src/class_weights.py        # PR #22  — class weighting
+    python3 src/oversampling.py         # PR #23  — Random + SMOTE
+    python3 src/model_comparison.py     # PR #24  — LR/RF/GB head-to-head
+    python3 src/final_selection.py      # PR #25  — capstone selection
+    python3 src/model_persistence.py    # PR #26  — pickle round-trip
+    python3 src/inference_demo.py       # PR #27  — production inference
+
+This file runs the leakage-safe training pipeline, an inference demo,
+and the deployment-artifact build that the Streamlit app depends on.
 """
 import pandas as pd
 
@@ -45,6 +63,10 @@ def main():
     print(f"Sample Input Prediction: {'Fraud' if prediction[0] == 1 else 'Legitimate'}")
 
     print("\n--- Pipeline Completed Successfully ---")
+    print("\nNext steps:")
+    print("  - To launch the Streamlit app:   streamlit run app.py")
+    print("  - To explore individual modules: see src/<module>.py listed in this file's docstring.")
+
 
 
 if __name__ == "__main__":
