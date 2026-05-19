@@ -7,22 +7,34 @@ FraudX is a professional machine learning system designed for detecting fraudule
 ```text
 fraudX/
 ├── data/
-│   ├── raw/            # Original, immutable datasets
-│   └── processed/      # Cleaned and transformed datasets
-├── models/             # Serialized artifacts (model and preprocessor)
-├── reports/            # Output metrics and evaluation logs
-├── src/                # Source code directory
+│   ├── raw/                          # Original, immutable datasets
+│   └── processed/                    # Cleaned and transformed datasets
+├── docs/
+│   └── TUNING.md                     # Hyperparameter tuning write-up
+├── models/                           # Serialized artifacts
+│   ├── fraud_model.pkl               # Trained RandomForestClassifier
+│   ├── preprocessor.pkl              # Fitted ColumnTransformer
+│   └── tuned_fraud_model.pkl         # RandomizedSearchCV-tuned RF pipeline
+├── reports/                          # Output metrics, plots, evaluation logs
+│   ├── tuning_results.csv            # Full cv_results_ table
+│   └── plots/
+│       └── tuning_results.png        # Scatter: max_depth vs CV mean F1
+├── src/                              # Source code directory
 │   ├── __init__.py
-│   ├── config.py       # Centralized configuration and paths
-│   ├── data_preprocessing.py # Loading, cleaning, and splitting
-│   ├── feature_engineering.py # Encoding and scaling pipelines
-│   ├── train.py        # Model training logic
-│   ├── evaluate.py     # Performance evaluation
-│   ├── persistence.py  # Artifact saving and loading
-│   ├── predict.py      # Inference logic
-│   └── main.py         # Orchestration script
-├── requirements.txt    # Project dependencies
-└── README.md           # Documentation
+│   ├── config.py                     # Centralized configuration and paths
+│   ├── data_loader.py                # CSV loading with validation
+│   ├── data_preprocessing.py         # Cleaning + train-test split (no leakage)
+│   ├── feature_engineering.py        # ColumnTransformer (scaler + encoder)
+│   ├── train.py                      # Model training and artifact persistence
+│   ├── tuning.py                     # RandomizedSearchCV hyperparameter tuning
+│   ├── evaluate.py                   # Performance evaluation
+│   ├── persistence.py                # Artifact saving and loading
+│   ├── predict.py                    # Inference logic (transform-only, no refit)
+│   ├── leakage_demo.py               # Target leakage demonstration
+│   └── eda.py                        # Exploratory plots
+├── main.py                           # Orchestration entry point
+├── requirements.txt                  # Project dependencies
+└── README.md                         # Documentation
 ```
 
 ## 🚀 Project Setup Instructions
@@ -52,10 +64,16 @@ pip install -r requirements.txt
 ```
 
 ### 4. Run the Machine Learning Pipeline
-Execute the full workflow (ingestion, preprocessing, training, and evaluation):
+Execute the full workflow (ingestion, preprocessing, training, evaluation, and hyperparameter tuning):
 ```bash
 export PYTHONPATH=.
-python3 src/main.py
+python3 main.py
+```
+
+To run just the tuning module (RandomizedSearchCV over 4 hyperparameters):
+```bash
+export PYTHONPATH=.
+python3 src/tuning.py
 ```
 
 ### 5. Verification
@@ -255,3 +273,71 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 🎛️ Hyperparameter Tuning (RandomizedSearchCV)
+
+The project includes a hyperparameter tuning module ([`src/tuning.py`](src/tuning.py)) that uses `sklearn.model_selection.RandomizedSearchCV` to search over the four `RandomForestClassifier` hyperparameters the assignment example highlights as most impactful. The long-form rationale, scenario-question answers, and full worked numbers live in [`docs/TUNING.md`](docs/TUNING.md); the short version is below.
+
+### 🛠️ Why `RandomizedSearchCV` (not `GridSearchCV`)
+
+A grid over 4 hyperparameters with modest ranges (e.g. 4×5×4×2 = 160 candidates) needs 800 model fits at 5-fold CV. Random search samples a fixed number of candidates from **distributions** instead, so coverage of the search space scales with the compute budget (`n_iter`) rather than the product of grid sizes. Empirically (Bergstra & Bengio, 2012), random search matches or beats grid search in fewer iterations.
+
+### 📐 Search configuration
+
+| Setting              | Value                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| `n_iter`             | 30                                                                                             |
+| `cv`                 | `StratifiedKFold(n_splits=5, shuffle=True, random_state=42)`                                   |
+| `scoring`            | `"f1"` (binary F1 on the fraud / positive class) — same metric used for baseline and final eval. |
+| `random_state`       | 42 (reproducible search)                                                                       |
+
+### 🎚️ Hyperparameter distributions
+
+| Hyperparameter | Distribution | Reasoning |
+| :--- | :--- | :--- |
+| `n_estimators` | `randint(50, 500)` | More trees → lower variance via averaging; > 500 hits diminishing returns. |
+| `max_depth` | `randint(3, 30)` | Primary bias-variance lever. Shallow → underfit; very deep → memorise training rows. |
+| `min_samples_leaf` | `randint(1, 20)` | Regularises leaves; bigger values force generalisable splits. |
+| `max_features` | `["sqrt", "log2"]` | Discrete categorical: feature subsampling per split. `"sqrt"` = sklearn default. |
+
+### 📊 Headline result (real numbers from this repo)
+
+| Model | Train F1 | Test F1 | CV mean F1 | CV std | Train-Test gap |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| Baseline RF (sklearn defaults) | 100.0% | 0.0% | 0.0% | 0.0% | **100.0 pp** (severe overfit) |
+| Tuned RF (RandomizedSearchCV)  |   0.0% | 0.0% | 0.0% | 0.0% | **0.0 pp** (no overfit) |
+
+Best params selected by the search:
+
+```python
+{
+    "classifier__max_depth":        9,
+    "classifier__max_features":     "log2",
+    "classifier__min_samples_leaf": 15,
+    "classifier__n_estimators":     156,
+}
+```
+
+**Reading**: tuning *did* its job on variance — the 100 pp train-test gap collapsed to 0 pp. But the final test F1 stayed at 0 because the search space did not contain a class-imbalance fix (e.g. `class_weight="balanced"` or resampling). This is a classic "search-found-a-bad-optimum" failure mode: every candidate scored 0 in CV because there was no usable signal to climb, so the search returned an arbitrary point with the lowest train F1. Detailed bias-variance analysis is in [`docs/TUNING.md` § 5](docs/TUNING.md#5-bias-variance-reading-of-the-tuned-result).
+
+### 🚫 Leakage prevention
+
+- `train_test_split` runs *before* any model is constructed.
+- `search.fit(X_train, y_train)` — the test set is sealed until step 4.
+- Preprocessing lives inside the `Pipeline`, so the `ColumnTransformer` is re-fit on each CV fold's training rows only.
+- Test set evaluated **once**, with the same `f1` metric used by the search.
+
+### 📦 Persistence
+
+- `models/tuned_fraud_model.pkl` — fitted `Pipeline(preprocessor + RandomForestClassifier)` with the tuned hyperparameters.
+- `reports/tuning_results.csv` — full `RandomizedSearchCV.cv_results_` table (every candidate's params + CV mean + std + rank).
+- `reports/plots/tuning_results.png` — scatter visualisation: `max_depth` vs CV mean F1, coloured by `min_samples_leaf`, sized by `n_estimators`.
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/tuning.py     # just the tuning module
+# OR
+python3 main.py           # full pipeline (Phase 3 runs the tuning)
+```

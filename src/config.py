@@ -16,6 +16,8 @@ RAW_DATA_PATH = os.path.join(DATA_DIR, "raw", "fraud_data.csv")
 PROCESSED_DATA_PATH = os.path.join(DATA_DIR, "processed", "processed_fraud_data.csv")
 MODEL_PATH = os.path.join(BASE_DIR, "models", "fraud_model.pkl")
 PIPELINE_PATH = os.path.join(BASE_DIR, "models", "preprocessor.pkl")
+# Hyperparameter-tuned model artifact (Assignment — Hyperparameter Tuning with RandomizedSearchCV)
+TUNED_MODEL_PATH = os.path.join(BASE_DIR, "models", "tuned_fraud_model.pkl")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 
 # Model Parameters
