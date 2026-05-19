@@ -255,3 +255,66 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## ⚖️ Class Imbalance Analysis
+
+The project includes a class-imbalance diagnostic module in [`src/imbalance_analysis.py`](src/imbalance_analysis.py) that (1) classifies the imbalance severity, (2) reports a `DummyClassifier(most_frequent)` baseline alongside a `RandomForestClassifier` model, (3) computes the full metric battery — including **PR-AUC** and **ROC-AUC** — and (4) generates a confusion-matrix heatmap visualisation. Long-form rationale, the assignment's Part 3 comparison answers, and all five scenario answers live in [`docs/IMBALANCE_ANALYSIS.md`](docs/IMBALANCE_ANALYSIS.md).
+
+### 🔎 Severity diagnosis
+
+Using the rubric *minority share ≥ 40% → mild; 10-40% → moderate; <10% → severe*:
+
+| Split        | n    | class 0 (legit) | class 1 (fraud) | minority share | severity |
+| :----------- | ---: | --------------: | --------------: | -------------: | :------- |
+| full dataset | 1000 |   909 (90.9 %)  |    91 ( 9.1 %)  |        9.10 %  | **severe** |
+| train (80 %) |  800 |   727 (90.9 %)  |    73 ( 9.1 %)  |        9.12 %  | severe   |
+| test  (20 %) |  200 |   182 (91.0 %)  |    18 ( 9.0 %)  |        9.00 %  | severe   |
+
+Stratified split preserved the minority share within ~0.1 pp across splits.
+
+### 📊 Headline result (real numbers from this repo)
+
+All metrics computed on the held-out test set (200 samples).
+
+| Model                       | Accuracy | Precision (1) | Recall (1) | F1 (1) | PR-AUC  | ROC-AUC |
+| :-------------------------- | -------: | ------------: | ---------: | -----: | ------: | ------: |
+| Baseline (`most_frequent`)  |  91.00 % |        0.00 % |     0.00 % | 0.00 % |  9.00 % | 50.00 % |
+| RandomForestClassifier      |  91.00 % |        0.00 % |     0.00 % | 0.00 % | 10.74 % | 46.38 % |
+
+**Reading**: at the default 0.5 threshold the RF predictions are *identical* to the baseline's — every test row gets class 0, so accuracy / precision / recall / F1 collapse to the same numbers. The two ranking-based metrics tell different stories:
+
+- **PR-AUC = 10.74 %** vs the 9.00 % class prior — tiny but real ranking signal.
+- **ROC-AUC = 46.38 %** — barely below chance, partly because the true-negative rate dominates the ROC curve under severe imbalance.
+
+The disagreement is itself the lesson: **PR-AUC is the right primary metric under severe imbalance**, and looking at both AUCs together is the right discipline.
+
+### 🎨 Visualisation
+
+`reports/plots/imbalance_confusion_matrices.png` — side-by-side confusion-matrix heatmap (baseline | RF), annotated with cell counts. Makes the "both models produce the same predictions at the default threshold" finding immediately visible.
+
+### 🚫 What this module deliberately does NOT do
+
+Per the assignment: this module is **purely diagnostic**. It does **not** apply resampling (SMOTE / under-sampling), class weighting, or threshold tuning. The natural follow-ups are:
+
+- `RandomForestClassifier(class_weight="balanced")` inside the existing tuning search ([PR #18](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/18)).
+- Threshold tuning informed by the PR curve (use the `predict_proba` outputs of the saved `models/imbalance_standard_model.pkl`).
+- SMOTE / random under-sampling on the training half only (no leakage).
+
+### 📦 Persistence
+
+- `models/imbalance_standard_model.pkl` — fitted `Pipeline(preprocessor + RandomForestClassifier)`.
+
+```python
+import joblib
+pipeline = joblib.load("models/imbalance_standard_model.pkl")
+y_score = pipeline.predict_proba(new_data_df)[:, 1]   # for threshold tuning later
+```
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/imbalance_analysis.py    # just the analysis
+# OR
+python3 main.py                      # full pipeline (Phase 3 runs the analysis)
+```
