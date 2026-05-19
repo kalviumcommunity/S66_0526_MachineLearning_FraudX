@@ -1,0 +1,6 @@
+amount,transaction_count,velocity,category,location,predicted_label,prob_legit,prob_fraud,decision
+18.5,2,0.4,retail,domestic,0,0.91,0.09,legit
+35.0,3,1.2,food,international,0,0.96,0.04,legit
+450.0,12,4.5,travel,international,0,0.72,0.28,legit
+780.0,28,9.0,travel,international,0,0.91,0.09,legit
+120.0,5,2.0,cryptoexchange,international,0,0.97,0.03,legit

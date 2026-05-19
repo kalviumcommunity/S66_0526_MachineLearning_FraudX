@@ -255,3 +255,76 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 🚀 Production Inference on a Persisted Model
+
+The project includes a production-inference demonstration in [`src/inference_demo.py`](src/inference_demo.py) that takes the persisted pipeline (the .pkl from PR #26 — or produces a fresh one if not present), loads it via `pickle.load()`, and uses it to score **5 new, never-before-seen transactions** with `predict()` + `predict_proba()`. The module also re-verifies test-set performance against PR #26's recorded numbers and explicitly asserts that no `.fit()` call ran during inference. Long-form rationale, the conceptual explanation, and the security + version-compatibility recap live in [`docs/INFERENCE.md`](docs/INFERENCE.md).
+
+### 🛠️ Training vs Inference (what this module proves)
+
+| Aspect | Training | Inference |
+| :--- | :--- | :--- |
+| When | Offline, ahead of deployment | Online, per request |
+| Computes | Model parameters | Model outputs |
+| Cost | High (minutes-to-hours) | Sub-millisecond |
+| Determinism | Stochastic | **Deterministic** |
+| `.fit()` runs? | **Yes** | **NO** |
+
+Inference is a pure function: same input → same output. This module's runtime asserts make that contract enforceable.
+
+### 📊 The 5 sample transactions
+
+Hand-crafted to probe different regions of the input space:
+
+| # | amount | tx_count | velocity | category | location | Expected reading |
+| - | -----: | -------: | -------: | :--- | :--- | :--- |
+| 0 | 18.50 | 2 | 0.4 | retail | domestic | low risk |
+| 1 | 35.00 | 3 | 1.2 | food | international | mid risk |
+| 2 | 450.00 | 12 | 4.5 | travel | international | higher risk |
+| 3 | 780.00 | 28 | 9.0 | travel | international | highest risk |
+| 4 | 120.00 | 5 | 2.0 | **cryptoexchange** | international | edge case — category NEVER seen during training |
+
+### 📊 Inference results (real run)
+
+| # | category | location | predicted_label | prob_legit | prob_fraud | decision |
+| - | :--- | :--- | --: | --: | --: | :--- |
+| 0 | retail | domestic | 0 | 0.91 | 0.09 | legit |
+| 1 | food | international | 0 | 0.96 | 0.04 | legit |
+| 2 | travel | international | 0 | 0.72 | **0.28** | legit |
+| 3 | travel | international | 0 | 0.91 | 0.09 | legit |
+| 4 | cryptoexchange | international | 0 | 0.97 | 0.03 | legit |
+
+**Highlights**:
+- Sample 2 (large travel + international) gets the highest fraud probability (0.28) — model has learned some signal even though the default 0.5 threshold doesn't flip the decision.
+- Sample 4's `cryptoexchange` category was **never seen during training**. The pipeline's `OneHotEncoder(handle_unknown="ignore")` (introduced in PR #19) handles it gracefully — inference proceeds and the model produces a sensible probability.
+
+### ✅ Verification (encoded asserts)
+
+| Check | Result |
+| :--- | :--- |
+| Loaded pipeline is fitted (`classes_`, `estimators_` present) | ✓ |
+| Test-set performance matches PR #26's recorded numbers (`np.isclose`) | ✓ |
+| Pre-vs-post-inference classifier fit-signature hash | identical ✓ |
+| No `.fit()` call during inference | ✓ |
+| Reproducible workflow (deterministic across runs) | ✓ |
+
+If any of these fail at runtime, the module raises — these are real asserts, not just print statements.
+
+### 📦 Persistence + Artifacts
+
+- `models/persisted_pipeline.pkl` — loaded artifact (produced by PR #26 or freshly here).
+- `reports/inference_predictions.csv` — the 5 new samples + predictions + probabilities for offline inspection.
+
+### 🔒 Security & version compatibility
+
+Covered in detail in PR #26's [`docs/MODEL_PERSISTENCE.md` §4.3-4.4](docs/MODEL_PERSISTENCE.md). The deployment-side recap: don't load untrusted `.pkl` files (arbitrary-code-execution risk via `__reduce__`); pin every dependency in `requirements.txt`; store a sidecar JSON with the sklearn / imblearn / numpy versions used at training time and refuse to load on mismatch.
+
+### 🏃 How to run
+
+```bash
+pip install -r requirements.txt
+export PYTHONPATH=.
+python3 src/inference_demo.py    # just the inference demo
+# OR
+python3 main.py                  # full pipeline (Phase 3 runs the demo)
+```
