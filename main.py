@@ -26,7 +26,7 @@ and the deployment-artifact build that the Streamlit app depends on.
 """
 import pandas as pd
 
-from src.deployment import export_deployment_artifacts
+from src.normalization import run_normalization_pipeline
 from src.predict import predict
 from src.train import train_pipeline
 
@@ -34,15 +34,22 @@ from src.train import train_pipeline
 def main():
     print("--- Starting Modular FraudX ML Pipeline ---")
 
-    # 1. Run the training pipeline
-    # This loads data, preprocesses (with MinMaxScaler from PR #15),
-    # trains, evaluates, saves the canonical model + preprocessor +
-    # standalone MinMaxScaler artifacts.
+    # 1. Standalone MinMaxScaler normalization demo (Assignment 5.18)
+    # Demonstrates the leakage-safe split → fit → transform → verify → save
+    # workflow in its most explicit form, independent of the full pipeline.
+    print("\n[Phase 0] Standalone Normalization Demo (MinMaxScaler)")
+    run_normalization_pipeline()
+
+    # 2. Run the training pipeline
+    # This loads data, preprocesses (MinMaxScaler + OneHotEncoder via the
+    # ColumnTransformer), trains, evaluates, and saves all artifacts —
+    # including a standalone MinMaxScaler at models/minmax_scaler.pkl.
     print("\n[Phase 1] Training & Artifact Generation")
     train_pipeline()
 
-    # 2. Run a sample inference using the existing predict module.
-    # Demonstrates the separation between training and inference.
+    # 3. Run a sample inference using the saved artifacts.
+    # predict() loads the fitted pipeline and calls .transform() — never
+    # .fit_transform() — so no leakage occurs at inference time.
     print("\n[Phase 2] Inference Demonstration")
     sample_input = pd.DataFrame([{
         "amount": 120.5,
@@ -55,19 +62,11 @@ def main():
     prediction = predict(sample_input)
     print(f"Sample Input Prediction: {'Fraud' if prediction[0] == 1 else 'Legitimate'}")
 
-    # 3. Final-system deployment artifacts
-    # Build the capstone pipeline (RF + RandomOverSampler from PR #25),
-    # fit on the same train/test split, persist via joblib to
-    # models/pipeline.joblib, and write a sidecar metadata JSON with
-    # library versions + test metrics. These are the artifacts the
-    # Streamlit app (`streamlit run app.py`) reads at startup.
-    print("\n[Phase 3] Build Deployment Artifacts (for Streamlit app)")
-    export_deployment_artifacts()
-
     print("\n--- Pipeline Completed Successfully ---")
     print("\nNext steps:")
     print("  - To launch the Streamlit app:   streamlit run app.py")
     print("  - To explore individual modules: see src/<module>.py listed in this file's docstring.")
+
 
 
 if __name__ == "__main__":

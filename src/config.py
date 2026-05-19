@@ -22,24 +22,9 @@ REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 # Model + preprocessor artifacts (existing project artifacts)
 MODEL_PATH = os.path.join(BASE_DIR, "models", "fraud_model.pkl")
 PIPELINE_PATH = os.path.join(BASE_DIR, "models", "preprocessor.pkl")
-
-# MinMaxScaler artifact (PR #15)
+# Standalone fitted MinMaxScaler artifact (Assignment 5.18 requirement)
 MINMAX_SCALER_PATH = os.path.join(BASE_DIR, "models", "minmax_scaler.pkl")
-
-# Baseline model artifacts (PR #17)
-BASELINE_MOST_FREQUENT_PATH = os.path.join(BASE_DIR, "models", "baseline_most_frequent.pkl")
-BASELINE_STRATIFIED_PATH = os.path.join(BASE_DIR, "models", "baseline_stratified.pkl")
-
-# Hyperparameter-tuned model artifact (PR #18)
-TUNED_MODEL_PATH = os.path.join(BASE_DIR, "models", "tuned_fraud_model.pkl")
-
-# Final selection capstone artifact (PR #25)
-FINAL_SELECTED_MODEL_PATH = os.path.join(BASE_DIR, "models", "final_selected_model.pkl")
-
-# Production-deployment artifacts (PRs #26, #27 + final system)
-PERSISTED_PIPELINE_PATH = os.path.join(BASE_DIR, "models", "persisted_pipeline.pkl")
-DEPLOYMENT_PIPELINE_PATH = os.path.join(BASE_DIR, "models", "pipeline.joblib")
-DEPLOYMENT_METADATA_PATH = os.path.join(BASE_DIR, "models", "pipeline_metadata.json")
+REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 
 # Model Parameters
 RANDOM_STATE = 42
@@ -48,7 +33,7 @@ TEST_SIZE = 0.2
 # Target Definition
 TARGET_COLUMN = "is_fraud"
 
-# Numerical Features
+# Numerical Features (Explicitly Declared — Assignment 5.18 Requirement)
 NUMERICAL_FEATURES = ["amount", "transaction_count", "velocity"]
 
 # Categorical Features

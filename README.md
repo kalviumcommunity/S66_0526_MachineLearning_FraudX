@@ -48,62 +48,31 @@ fraudX/
 ├── app.py                         # Streamlit app entry point
 ├── main.py                        # Full pipeline orchestrator
 ├── data/
-│   ├── raw/fraud_data.csv         # Original dataset (immutable)
-│   └── processed/                 # Cleaned datasets (generated)
-├── docs/                          # Per-PR write-ups (one per module)
-├── models/
-│   ├── pipeline.joblib            # FINAL deployment artifact
-│   ├── pipeline_metadata.json     # Versions + test metrics sidecar
-│   ├── fraud_model.pkl            # Legacy RandomForestClassifier artifact
-│   ├── preprocessor.pkl           # Legacy ColumnTransformer artifact
-│   └── minmax_scaler.pkl          # Standalone fitted MinMaxScaler (PR #15)
-├── reports/
-│   ├── plots/                     # EDA + model-comparison + confusion-matrix PNGs
-│   └── screenshots/               # Streamlit app screenshots (to be added post-merge)
-├── src/                           # ALL module code from PRs #15–#27, consolidated
-│   ├── config.py                  # Centralized configuration
-│   ├── data_loader.py             # CSV loading
-│   ├── data_preprocessing.py      # Cleaning + stratified train/test split
-│   ├── feature_engineering.py     # ColumnTransformer (MinMaxScaler + OHE)
-│   ├── train.py / predict.py      # Training + inference for the legacy artifacts
-│   ├── deployment.py              # Builds pipeline.joblib + metadata.json (final-system)
-│   ├── normalization.py           # PR #15 — MinMaxScaler standalone workflow
-│   ├── baseline.py / comparison.py# PR #17 — DummyClassifier baselines
-│   ├── tuning.py                  # PR #18 — RandomizedSearchCV
-│   ├── pipeline_demo.py           # PR #19 — manual-vs-Pipeline contrast
-│   ├── leakage_correction.py      # PR #20 — 4-leakage audit
-│   ├── imbalance_analysis.py      # PR #21 — severity + PR-AUC + ROC-AUC
-│   ├── class_weights.py           # PR #22 — cost-sensitive learning
-│   ├── oversampling.py            # PR #23 — Random + SMOTE
-│   ├── model_comparison.py        # PR #24 — LR / RF / GB head-to-head
-│   ├── final_selection.py         # PR #25 — capstone selection
-│   ├── model_persistence.py       # PR #26 — pickle round-trip
-│   ├── load_and_verify.py         # PR #26 — fresh-subprocess loader
-│   ├── inference_demo.py          # PR #27 — production inference + edge cases
-│   ├── evaluate.py                # evaluate_model + evaluate_detailed
-│   ├── eda.py                     # Exploratory plots
-│   ├── leakage_demo.py            # Target leakage demo
-│   └── persistence.py             # joblib save/load helpers
-├── requirements.txt               # Pinned versions for reproducibility
-└── README.md                      # This file
-```
-
-### Pipeline design
-
-Every learnable step lives inside an `imblearn.Pipeline`:
-
-```python
-ImbPipeline([
-    ("preprocessor", ColumnTransformer([
-        ("num", Pipeline([("imputer", SimpleImputer("median")),
-                         ("scaler",  StandardScaler())]), NUMERICAL_FEATURES),
-        ("cat", Pipeline([("imputer", SimpleImputer("most_frequent")),
-                         ("onehot",  OneHotEncoder(handle_unknown="ignore", drop="first"))]),
-                         CATEGORICAL_FEATURES),
-    ])),
-    ("sampler",    RandomOverSampler(random_state=42)),
-    ("classifier", RandomForestClassifier(random_state=42)),
-])
+│   ├── raw/                          # Original, immutable datasets
+│   └── processed/                    # Cleaned and transformed datasets
+├── docs/
+│   └── NORMALIZATION.md              # MinMaxScaler design & decisions
+├── models/                           # Serialized artifacts
+│   ├── fraud_model.pkl               # Trained RandomForestClassifier
+│   ├── preprocessor.pkl              # Fitted ColumnTransformer (scaler + encoder)
+│   └── minmax_scaler.pkl             # Standalone fitted MinMaxScaler
+├── reports/                          # Output metrics, plots, evaluation logs
+├── src/                              # Source code directory
+│   ├── __init__.py
+│   ├── config.py                     # Centralized configuration and paths
+│   ├── data_loader.py                # CSV loading with validation
+│   ├── data_preprocessing.py         # Cleaning + train-test split (no leakage)
+│   ├── feature_engineering.py        # ColumnTransformer (MinMaxScaler + OHE)
+│   ├── normalization.py              # Standalone MinMaxScaler workflow + verification
+│   ├── train.py                      # Model training and artifact persistence
+│   ├── evaluate.py                   # Performance evaluation
+│   ├── persistence.py                # Artifact saving and loading
+│   ├── predict.py                    # Inference logic (transform-only, no refit)
+│   ├── leakage_demo.py               # Target leakage demonstration
+│   ├── eda.py                        # Exploratory plots
+│   └── main.py                       # Orchestration entry point
+├── requirements.txt                  # Project dependencies
+└── README.md                         # Documentation
 ```
 
 The contract: `cross_val_score` clones the entire pipeline for every fold, refits the preprocessor + sampler + classifier on the fold's training rows only, and uses the fold's validation rows in `.predict()` (the sampler is bypassed at predict-time). **Leakage is impossible by construction.**
@@ -171,7 +140,18 @@ source venv/bin/activate              # macOS / Linux
 pip install -r requirements.txt
 ```
 
-### Train + build the deployment pipeline + open the Streamlit app
+### 4. Run the Machine Learning Pipeline
+Execute the full workflow (ingestion, preprocessing, training, evaluation, and hyperparameter tuning):
+```bash
+export PYTHONPATH=.
+python3 main.py
+```
+
+To run just the standalone MinMaxScaler normalization workflow (split → fit-on-train → transform-test → verify → save):
+```bash
+export PYTHONPATH=.
+python3 src/normalization.py
+```
 
 ```bash
 export PYTHONPATH=.                    # so `from src.config import ...` works
@@ -252,12 +232,13 @@ This module's "honest verdict" framing — first surfaced in PR #17 — runs thr
 
 ### Before/after imbalance metrics
 
-| Stage | Class 0 (legit) | Class 1 (fraud) | Recall(1) | F1(1) |
-| :--- | ---: | ---: | ---: | ---: |
-| Before resampling (default RF) | 727 train / 182 test | 73 train / 18 test | 0.0% | 0.0% |
-| After RandomOS resampling (final model) | 727 train (resampled to 727 in CV folds) / 182 test | 727 train (after RandomOS) / 18 test | **5.6%** | **8.3%** |
+| Feature Name | Reason for Numerical Type | Scaling Strategy |
+| :--- | :--- | :--- |
+| `amount` | Represents currency magnitude; continuous value. | `MinMaxScaler` (range [0, 1]) |
+| `transaction_count` | Discrete integer count of recent activity. | `MinMaxScaler` (range [0, 1]) |
+| `velocity` | Calculated frequency ratio; continuous value. | `MinMaxScaler` (range [0, 1]) |
 
-The resampler only modifies the training half — the test set always stays at the real 91/9 prior. Pipeline-wrapped resampling means the test set never sees synthetic / duplicated rows.
+- **Scaling Justification**: All numerical features are normalized to the bounded range `[0, 1]` so that features with larger natural ranges (like `amount`) do not dominate the distance-based or gradient-based calculations of scale-sensitive models. See [Numerical Feature Normalization](#-numerical-feature-normalization-minmaxscaler) below for the full rationale, leakage discipline, and verification.
 
 ---
 
@@ -352,28 +333,58 @@ I used to think a great ML project was a great model. Now I think a great ML pro
 
 ---
 
-## 📚 Module index — PR references
+## ⚖️ Numerical Feature Normalization (`MinMaxScaler`)
 
-Each module is one PR. Each PR has its own detailed write-up in `docs/`.
+Numerical features in the FraudX dataset exist on very different natural scales (`amount` ranges into the hundreds, `transaction_count` is a small integer count, `velocity` is a ratio). To ensure stable optimization and consistent feature contribution for scale-sensitive models, we **normalize** all numerical features to the bounded range `[0, 1]` using `MinMaxScaler`.
 
-| Module | PR | Topic |
-| :--- | :--- | :--- |
-| 1 | [#15](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/15) | MinMaxScaler normalization with leakage-safe fit |
-| 2 | [#17](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/17) | Baseline + Class-Imbalance Comparison harness |
-| 3 | [#18](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/18) | Hyperparameter Tuning with RandomizedSearchCV |
-| 4 | [#19](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/19) | Scikit-Learn Pipeline Integration |
-| 5 | [#20](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/20) | Data Leakage Detection (4 layered types) + Pipeline correction |
-| 6 | [#21](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/21) | Class Imbalance Analysis (severity, PR-AUC, ROC-AUC) |
-| 7 | [#22](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/22) | Class Weights for Cost-Sensitive Learning |
-| 8 | [#23](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/23) | Oversampling (Random + SMOTE) |
-| 9 | [#24](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/24) | Multi-Model Comparison with CV |
-| 10 | [#25](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/25) | Final Model Selection + Use-Case Alignment (capstone) |
-| 11 | [#26](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/26) | Model Persistence with Pickle |
-| 12 | [#27](https://github.com/kalviumcommunity/S66_0526_MachineLearning_FraudX/pull/27) | Production Inference on Persisted Model |
-| 13 | **THIS PR** | **Final End-to-End ML System with Streamlit Deployment** |
+This implementation is the deliverable for the **Feature Normalization (MinMaxScaler)** assignment. A dedicated standalone module, [`src/normalization.py`](src/normalization.py), demonstrates the exact split → fit-on-train → transform-test → verify → save workflow in its most explicit form. The same scaler is also wired into the production [`ColumnTransformer`](src/feature_engineering.py) so the rest of the pipeline (training and inference) uses it automatically. See [`docs/NORMALIZATION.md`](docs/NORMALIZATION.md) for the long-form write-up.
 
----
+### 🛠️ Implementation Details
+- **Features Scaled**: `amount`, `transaction_count`, `velocity` (only the columns listed in `NUMERICAL_FEATURES` in [`src/config.py`](src/config.py)).
+- **Method**: `sklearn.preprocessing.MinMaxScaler(feature_range=(0, 1))`.
+- **Transformation Formula**: `x_scaled = (x - x_min_train) / (x_max_train - x_min_train)` — where `x_min_train` and `x_max_train` are learned from the training set only.
+- **Where `fit()` is called**: on `X_train[NUMERICAL_FEATURES]` only, inside the `ColumnTransformer`'s numerical sub-pipeline (and explicitly in `normalization.py`).
+- **Where `transform()` is called**: on `X_test[NUMERICAL_FEATURES]` and on any new data at inference time. `fit_transform()` is **never** called on the test set or on new data.
 
-## 📜 License & Acknowledgements
+### 🧠 Why `MinMaxScaler` (and not `StandardScaler`)?
+1. **Model-agnostic bounded inputs.** Distance-based learners (kNN), margin-based learners (SVM), gradient-based learners (Logistic Regression, Neural Networks) all benefit from inputs that share a common, bounded scale. `MinMaxScaler` gives every feature an identical range `[0, 1]`. `StandardScaler` instead centers each feature around its mean with unit variance — different features still end up with different empirical ranges, which is not what we want when we may swap in distance/margin-based models in future sprints.
+2. **Distribution shape is preserved.** `MinMaxScaler` is a linear rescaling; it does not assume the data is Gaussian. Our `transaction_count` and `velocity` features are nearly symmetric, while `amount` is right-skewed — `MinMaxScaler` keeps each distribution's shape intact and just remaps the axis, which is the right behavior when we have not committed to a parametric assumption.
+3. **Interpretability.** Scaled values lie in `[0, 1]`, which makes downstream debugging, feature-importance plots, and ad-hoc sanity checks much easier to read than z-scores.
 
-Built as the final milestone of the Kalvium x LPU Machine Learning Sprint (S66 cohort, Roll 0526). Architecture decisions, leakage audits, and the disciplined PR-per-module structure were guided by the sprint rubric — every module was designed to surface a specific failure mode and document the fix.
+### 🚫 Leakage Prevention — How
+- **Split-first policy.** `train_test_split` is called BEFORE any scaler is instantiated. No global mean / variance / min / max is ever computed across the full dataset.
+- **Fit-on-train discipline.** The `MinMaxScaler` is `fit()` exclusively on the training set. The test set is transformed using the `data_min_` and `data_max_` learned on training data only.
+- **Inference-time discipline.** `predict.py` and the inference demo in `normalization.py` both call `transform()` (never `fit_transform()`) using the saved scaler. New, unseen samples are scaled with the EXACT parameters used during training.
+- **Why `fit_transform` on the whole dataset would be a leak.** The test set's min and max would secretly contribute to the scaling parameters, so the model would have implicitly "seen" properties of the test set during training. The reported test score would be optimistic and would not generalize to truly unseen production data.
+
+### 🗂️ Categorical Features Are Not Scaled
+Categorical features (`category`, `location`) are processed via `OneHotEncoder` only. They become binary 0/1 flags. Rescaling binary flags would distort their logical meaning, so the `MinMaxScaler` is applied strictly to `NUMERICAL_FEATURES`.
+
+### 📦 Persistence (`joblib`)
+Two artifacts are saved on every training run:
+- `models/preprocessor.pkl` — the full fitted `ColumnTransformer` (scaler + encoder), used by `predict.py`.
+- `models/minmax_scaler.pkl` — the **standalone fitted `MinMaxScaler`** (required by the assignment), so the scaler can be inspected and reused in isolation.
+
+```python
+import joblib
+joblib.dump(scaler, "models/minmax_scaler.pkl")  # save
+scaler = joblib.load("models/minmax_scaler.pkl") # load at prediction time
+X_new[NUMERICAL_FEATURES] = scaler.transform(X_new[NUMERICAL_FEATURES])
+```
+
+### 🧪 Outlier Consideration
+- **Inspection.** EDA boxplots (`reports/plots/boxplots.png`) show that `amount` is right-skewed with a long tail, while `transaction_count` and `velocity` are reasonably symmetric. The skewness numbers (≈ 1.87 for `amount`, near 0 for the other two) are also recorded in the EDA section above.
+- **Decision.** Outliers were **left in place — not capped, not log-transformed** — because in a fraud-detection context, unusually large transactions often carry predictive signal (large amounts are disproportionately fraudulent). Removing or capping them would destroy useful information.
+- **Why `MinMaxScaler` is still appropriate.** Yes, `MinMaxScaler` is sensitive to extreme values — the maximum value defines the upper bound. But because the scaler is fit on training data only, the resulting `[0, 1]` range simply reflects "the most extreme transaction we saw during training." Genuinely larger transactions in the test set or in production will scale to slightly above `1.0`, which is acceptable: tree ensembles like our `RandomForestClassifier` are unaffected by that, and downstream scale-sensitive models still receive a stable, well-behaved input. If a future model is more sensitive to that tail behaviour, a `log1p` transform on `amount` (applied AFTER the train-test split, fit on train only) would be the next iteration.
+
+### 📊 Verification
+The training pipeline (and `normalization.py`) prints and asserts the following on every run:
+- Minimum of each scaled numerical feature in the **training set** is approximately `0`.
+- Maximum of each scaled numerical feature in the **training set** is approximately `1`.
+- The test set's range may slightly exceed `[0, 1]` if its values are more extreme than anything seen during training — this is **expected and correct**, and it confirms that no information leaked from the test set into the training fit.
+
+Run the standalone verification yourself:
+```bash
+export PYTHONPATH=.
+python3 src/normalization.py
+```
