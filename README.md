@@ -255,3 +255,84 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## ⚖️ Class Weights for Cost-Sensitive Learning
+
+The project includes a class-weights / cost-sensitive-learning module in [`src/class_weights.py`](src/class_weights.py) that trains BOTH a baseline `RandomForestClassifier` and a weighted `RandomForestClassifier(class_weight="balanced")` on the same train/test split, then reports the metric trade-off. Long-form rationale, the assignment's Part 3 comparative-analysis answers, all five Part 4 scenario answers, and the **business recommendation** live in [`docs/CLASS_WEIGHTS.md`](docs/CLASS_WEIGHTS.md).
+
+### 🧮 What `class_weight="balanced"` does
+
+`sklearn` computes per-class weights inversely proportional to class frequency:
+```
+weight_class = n_samples / (n_classes * n_class_examples)
+```
+
+For FraudX's training set (800 rows, class counts {0: 727, 1: 73}):
+
+| Class | Count | Weight (`balanced`) |
+| :---: | ----: | ------------------: |
+|   0   |   727 |                ≈ 0.55 |
+|   1   |    73 |                ≈ 5.48 |
+
+Minority-class errors cost ~10× more than majority-class errors. The Random Forest's split-impurity criterion at every node uses these weights, so splits that isolate minority examples become attractive even at a slight majority-class cost.
+
+### 📊 Headline result (real numbers from this repo)
+
+Test set: 200 samples (182 class 0 / 18 class 1).
+
+| Metric                  | Without Weights | With Weights (`balanced`) | Δ |
+| :---------------------- | --------------: | -----------------------: | -: |
+| Accuracy                | 91.00 %         | 91.00 %                  | 0.00 pp |
+| Precision (minority)    | 0.00 %          | 0.00 %                   | 0.00 pp |
+| Recall (minority)       | 0.00 %          | 0.00 %                   | 0.00 pp |
+| F1-score (minority)     | 0.00 %          | 0.00 %                   | 0.00 pp |
+
+**Identical confusion matrices** for both models (TN = 182, FP = 0, FN = 18, TP = 0).
+
+**Honest reading**: on this specific small synthetic dataset, `class_weight="balanced"` did **not** move the default-threshold predictions. Both models still predict class 0 for every test row. Investigation of `predict_proba` scores shows the weighted RF's fraud-class probabilities are essentially identical to the baseline's (max 0.49 for both; mean shift 0.0056 in either direction across the 200 test samples). The trees simply do not find fraud-specific splits with so few minority examples (73 in training), and weighted impurity is not enough to manufacture signal that isn't already in the features.
+
+This is a genuine engineering finding: **class weighting alone is not a magic bullet — it amplifies whatever discriminative signal the model already has, but cannot manufacture signal where none exists.** The PR description records the business recommendation: do NOT ship at the default threshold; next iteration should pair class weighting with threshold tuning or resampling.
+
+### 📝 The recall–precision trade-off (mandatory in PR)
+
+The textbook trade-off when class weighting moves the needle:
+
+| Metric | Direction | Why |
+| :--- | :---: | :--- |
+| Recall (minority) | ↑ | Model predicts class 1 more eagerly to avoid the (expensive) missed-positive penalty. |
+| Precision (minority) | ↓ | More positive predictions = more false positives. |
+| Accuracy | ↓ | False positives cost accuracy points. |
+| F1 (minority) | ?  | Depends on whether recall gains outweigh precision losses. |
+
+On THIS dataset the trade-off didn't surface because the model can't find usable splits regardless of weighting. The trade-off framework is still the right way to think about cost-sensitive learning on any dataset where the lever actually moves.
+
+### 🚫 What class weighting does NOT solve
+
+It re-weights the loss; it does NOT change the data distribution or the available features. A complete solution typically combines:
+- class weighting (sets the right loss),
+- threshold tuning (picks the right operating point on the PR curve),
+- resampling (gives the model more minority examples to learn from),
+- and a stated cost function (so the threshold isn't picked by feel).
+
+This module covers the first lever. The natural next step is threshold tuning of the saved `models/weighted_fraud_model.pkl` — its `predict_proba` scores are calibrated against the asymmetric loss and are the right input to a precision-recall-curve operating-point selection.
+
+### 📦 Persistence
+
+```python
+import joblib
+pipeline = joblib.load("models/weighted_fraud_model.pkl")
+proba = pipeline.predict_proba(new_data_df)[:, 1]   # for threshold tuning
+```
+
+### 🎨 Visualisation
+
+`reports/plots/class_weights_confusion_matrices.png` — side-by-side confusion-matrix heatmap (baseline | weighted), annotated with cell counts.
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/class_weights.py    # just the demo
+# OR
+python3 main.py                  # full pipeline (Phase 3 runs the demo)
+```
