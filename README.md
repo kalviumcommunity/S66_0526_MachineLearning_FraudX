@@ -7,22 +7,31 @@ FraudX is a professional machine learning system designed for detecting fraudule
 ```text
 fraudX/
 ├── data/
-│   ├── raw/            # Original, immutable datasets
-│   └── processed/      # Cleaned and transformed datasets
-├── models/             # Serialized artifacts (model and preprocessor)
-├── reports/            # Output metrics and evaluation logs
-├── src/                # Source code directory
+│   ├── raw/                          # Original, immutable datasets
+│   └── processed/                    # Cleaned and transformed datasets
+├── docs/
+│   └── NORMALIZATION.md              # MinMaxScaler design & decisions
+├── models/                           # Serialized artifacts
+│   ├── fraud_model.pkl               # Trained RandomForestClassifier
+│   ├── preprocessor.pkl              # Fitted ColumnTransformer (scaler + encoder)
+│   └── minmax_scaler.pkl             # Standalone fitted MinMaxScaler
+├── reports/                          # Output metrics, plots, evaluation logs
+├── src/                              # Source code directory
 │   ├── __init__.py
-│   ├── config.py       # Centralized configuration and paths
-│   ├── data_preprocessing.py # Loading, cleaning, and splitting
-│   ├── feature_engineering.py # Encoding and scaling pipelines
-│   ├── train.py        # Model training logic
-│   ├── evaluate.py     # Performance evaluation
-│   ├── persistence.py  # Artifact saving and loading
-│   ├── predict.py      # Inference logic
-│   └── main.py         # Orchestration script
-├── requirements.txt    # Project dependencies
-└── README.md           # Documentation
+│   ├── config.py                     # Centralized configuration and paths
+│   ├── data_loader.py                # CSV loading with validation
+│   ├── data_preprocessing.py         # Cleaning + train-test split (no leakage)
+│   ├── feature_engineering.py        # ColumnTransformer (MinMaxScaler + OHE)
+│   ├── normalization.py              # Standalone MinMaxScaler workflow + verification
+│   ├── train.py                      # Model training and artifact persistence
+│   ├── evaluate.py                   # Performance evaluation
+│   ├── persistence.py                # Artifact saving and loading
+│   ├── predict.py                    # Inference logic (transform-only, no refit)
+│   ├── leakage_demo.py               # Target leakage demonstration
+│   ├── eda.py                        # Exploratory plots
+│   └── main.py                       # Orchestration entry point
+├── requirements.txt                  # Project dependencies
+└── README.md                         # Documentation
 ```
 
 ## 🚀 Project Setup Instructions
@@ -52,10 +61,16 @@ pip install -r requirements.txt
 ```
 
 ### 4. Run the Machine Learning Pipeline
-Execute the full workflow (ingestion, preprocessing, training, and evaluation):
+Execute the full workflow (ingestion, preprocessing, training, evaluation, and hyperparameter tuning):
 ```bash
 export PYTHONPATH=.
-python3 src/main.py
+python3 main.py
+```
+
+To run just the standalone MinMaxScaler normalization workflow (split → fit-on-train → transform-test → verify → save):
+```bash
+export PYTHONPATH=.
+python3 src/normalization.py
 ```
 
 ### 5. Verification
@@ -127,11 +142,11 @@ These features represent measurable quantities where arithmetic relationships ca
 
 | Feature Name | Reason for Numerical Type | Scaling Strategy |
 | :--- | :--- | :--- |
-| `amount` | Represents currency magnitude; continuous value. | `StandardScaler` (Z-score normalization) |
-| `transaction_count` | Discrete integer count of recent activity. | `StandardScaler` |
-| `velocity` | Calculated frequency ratio; continuous value. | `StandardScaler` |
+| `amount` | Represents currency magnitude; continuous value. | `MinMaxScaler` (range [0, 1]) |
+| `transaction_count` | Discrete integer count of recent activity. | `MinMaxScaler` (range [0, 1]) |
+| `velocity` | Calculated frequency ratio; continuous value. | `MinMaxScaler` (range [0, 1]) |
 
-- **Scaling Justification**: All numerical features are scaled to a mean of 0 and variance of 1 to ensure that features with larger ranges (like `amount`) do not dominate the distance-based calculations of the model.
+- **Scaling Justification**: All numerical features are normalized to the bounded range `[0, 1]` so that features with larger natural ranges (like `amount`) do not dominate the distance-based or gradient-based calculations of scale-sensitive models. See [Numerical Feature Normalization](#-numerical-feature-normalization-minmaxscaler) below for the full rationale, leakage discipline, and verification.
 
 ### 🗂️ Categorical Features
 These features represent discrete labels or groups with no inherent mathematical magnitude.
@@ -231,91 +246,58 @@ We compared two versions of the model:
 ---
 *Run the demonstration yourself using:* `python3 src/leakage_demo.py`
 
-## ⚖️ Numerical Feature Scaling
+## ⚖️ Numerical Feature Normalization (`MinMaxScaler`)
 
-Numerical features in the FraudX dataset exist on different scales (e.g., `amount` can be in the hundreds, while `velocity` is a small ratio). To ensure stable optimization and consistent feature contribution, we implement standardization using `StandardScaler`.
+Numerical features in the FraudX dataset exist on very different natural scales (`amount` ranges into the hundreds, `transaction_count` is a small integer count, `velocity` is a ratio). To ensure stable optimization and consistent feature contribution for scale-sensitive models, we **normalize** all numerical features to the bounded range `[0, 1]` using `MinMaxScaler`.
+
+This implementation is the deliverable for the **Feature Normalization (MinMaxScaler)** assignment. A dedicated standalone module, [`src/normalization.py`](src/normalization.py), demonstrates the exact split → fit-on-train → transform-test → verify → save workflow in its most explicit form. The same scaler is also wired into the production [`ColumnTransformer`](src/feature_engineering.py) so the rest of the pipeline (training and inference) uses it automatically. See [`docs/NORMALIZATION.md`](docs/NORMALIZATION.md) for the long-form write-up.
 
 ### 🛠️ Implementation Details
-- **Features Scaled**: `amount`, `transaction_count`, `velocity`.
-- **Method**: `StandardScaler` (Standardization).
-- **Transformation Formula**: $z = (x - \mu) / \sigma$ (resulting in Mean=0, Std=1).
+- **Features Scaled**: `amount`, `transaction_count`, `velocity` (only the columns listed in `NUMERICAL_FEATURES` in [`src/config.py`](src/config.py)).
+- **Method**: `sklearn.preprocessing.MinMaxScaler(feature_range=(0, 1))`.
+- **Transformation Formula**: `x_scaled = (x - x_min_train) / (x_max_train - x_min_train)` — where `x_min_train` and `x_max_train` are learned from the training set only.
+- **Where `fit()` is called**: on `X_train[NUMERICAL_FEATURES]` only, inside the `ColumnTransformer`'s numerical sub-pipeline (and explicitly in `normalization.py`).
+- **Where `transform()` is called**: on `X_test[NUMERICAL_FEATURES]` and on any new data at inference time. `fit_transform()` is **never** called on the test set or on new data.
 
-### 🧠 Strategic Justification
-1. **Model Choice**: We are using a `RandomForestClassifier`. While tree-based models are scale-invariant, we apply scaling to:
-    - Maintain numerical stability in the preprocessing pipeline.
-    - Ensure compatibility if we decide to switch to distance-based models (like SVM or kNN) or linear models (like Logistic Regression) in the future.
-    - Provide a standardized range for feature importance comparisons.
-2. **Leakage Prevention**:
-    - **Split-First Policy**: Scaling is applied *only* after the train-test split.
-    - **Fit-Transform Discipline**: The `StandardScaler` is `fit()` exclusively on the training set. The test set is transformed using the parameters (mean and variance) learned from the training data, ensuring no information from the test set leaks into the training process.
-3. **Artifact Persistence**: The fitted scaler is part of the `ColumnTransformer` saved in `models/preprocessor.pkl`. This ensures that during inference, new data is scaled using the exact same parameters used during training.
+### 🧠 Why `MinMaxScaler` (and not `StandardScaler`)?
+1. **Model-agnostic bounded inputs.** Distance-based learners (kNN), margin-based learners (SVM), gradient-based learners (Logistic Regression, Neural Networks) all benefit from inputs that share a common, bounded scale. `MinMaxScaler` gives every feature an identical range `[0, 1]`. `StandardScaler` instead centers each feature around its mean with unit variance — different features still end up with different empirical ranges, which is not what we want when we may swap in distance/margin-based models in future sprints.
+2. **Distribution shape is preserved.** `MinMaxScaler` is a linear rescaling; it does not assume the data is Gaussian. Our `transaction_count` and `velocity` features are nearly symmetric, while `amount` is right-skewed — `MinMaxScaler` keeps each distribution's shape intact and just remaps the axis, which is the right behavior when we have not committed to a parametric assumption.
+3. **Interpretability.** Scaled values lie in `[0, 1]`, which makes downstream debugging, feature-importance plots, and ad-hoc sanity checks much easier to read than z-scores.
 
-### 🚫 Categorical Handling
-Categorical features (`category`, `location`) are **not scaled**. They are processed via `OneHotEncoder`, which transforms them into binary flags (0 or 1). Scaling these binary flags would distort their logical meaning.
+### 🚫 Leakage Prevention — How
+- **Split-first policy.** `train_test_split` is called BEFORE any scaler is instantiated. No global mean / variance / min / max is ever computed across the full dataset.
+- **Fit-on-train discipline.** The `MinMaxScaler` is `fit()` exclusively on the training set. The test set is transformed using the `data_min_` and `data_max_` learned on training data only.
+- **Inference-time discipline.** `predict.py` and the inference demo in `normalization.py` both call `transform()` (never `fit_transform()`) using the saved scaler. New, unseen samples are scaled with the EXACT parameters used during training.
+- **Why `fit_transform` on the whole dataset would be a leak.** The test set's min and max would secretly contribute to the scaling parameters, so the model would have implicitly "seen" properties of the test set during training. The reported test score would be optimistic and would not generalize to truly unseen production data.
+
+### 🗂️ Categorical Features Are Not Scaled
+Categorical features (`category`, `location`) are processed via `OneHotEncoder` only. They become binary 0/1 flags. Rescaling binary flags would distort their logical meaning, so the `MinMaxScaler` is applied strictly to `NUMERICAL_FEATURES`.
+
+### 📦 Persistence (`joblib`)
+Two artifacts are saved on every training run:
+- `models/preprocessor.pkl` — the full fitted `ColumnTransformer` (scaler + encoder), used by `predict.py`.
+- `models/minmax_scaler.pkl` — the **standalone fitted `MinMaxScaler`** (required by the assignment), so the scaler can be inspected and reused in isolation.
+
+```python
+import joblib
+joblib.dump(scaler, "models/minmax_scaler.pkl")  # save
+scaler = joblib.load("models/minmax_scaler.pkl") # load at prediction time
+X_new[NUMERICAL_FEATURES] = scaler.transform(X_new[NUMERICAL_FEATURES])
+```
+
+### 🧪 Outlier Consideration
+- **Inspection.** EDA boxplots (`reports/plots/boxplots.png`) show that `amount` is right-skewed with a long tail, while `transaction_count` and `velocity` are reasonably symmetric. The skewness numbers (≈ 1.87 for `amount`, near 0 for the other two) are also recorded in the EDA section above.
+- **Decision.** Outliers were **left in place — not capped, not log-transformed** — because in a fraud-detection context, unusually large transactions often carry predictive signal (large amounts are disproportionately fraudulent). Removing or capping them would destroy useful information.
+- **Why `MinMaxScaler` is still appropriate.** Yes, `MinMaxScaler` is sensitive to extreme values — the maximum value defines the upper bound. But because the scaler is fit on training data only, the resulting `[0, 1]` range simply reflects "the most extreme transaction we saw during training." Genuinely larger transactions in the test set or in production will scale to slightly above `1.0`, which is acceptable: tree ensembles like our `RandomForestClassifier` are unaffected by that, and downstream scale-sensitive models still receive a stable, well-behaved input. If a future model is more sensitive to that tail behaviour, a `log1p` transform on `amount` (applied AFTER the train-test split, fit on train only) would be the next iteration.
 
 ### 📊 Verification
-After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+The training pipeline (and `normalization.py`) prints and asserts the following on every run:
+- Minimum of each scaled numerical feature in the **training set** is approximately `0`.
+- Maximum of each scaled numerical feature in the **training set** is approximately `1`.
+- The test set's range may slightly exceed `[0, 1]` if its values are more extreme than anything seen during training — this is **expected and correct**, and it confirms that no information leaked from the test set into the training fit.
 
-## 🔀 Multi-Model Comparison with Cross-Validation
-
-The project includes a fair, disciplined head-to-head comparison module in [`src/model_comparison.py`](src/model_comparison.py) that trains THREE classifiers — **Logistic Regression**, **Random Forest**, and **Gradient Boosting** — on the SAME train/test split, with the SAME preprocessing pipeline, the SAME 5-fold StratifiedKFold CV strategy, and the SAME scoring metric (`f1` on the fraud class). Long-form rationale, the five Part 5 comparative-analysis answers, the bias-variance discussion, and the final justified model selection live in [`docs/MODEL_COMPARISON.md`](docs/MODEL_COMPARISON.md).
-
-### 🛠️ The three candidates
-
-| Model | Why it's in the comparison |
-| :--- | :--- |
-| **Logistic Regression** (L2) | Linear baseline. Fast, interpretable, well-calibrated probabilities. Reveals whether the FraudX signal is linearly separable. |
-| **Random Forest** | The project's incumbent in every prior module. Tree ensemble; low variance via bagging. |
-| **Gradient Boosting** | Sequential trees fit on residuals. Typically the strongest tabular learner of the three. |
-
-All three live in the SAME `Pipeline(ColumnTransformer + classifier)` — the only thing different is the final estimator step.
-
-### 📊 Cross-validation results
-
-5-fold StratifiedKFold (`shuffle=True`, `random_state=42`), `scoring="f1"` on the fraud (positive) class.
-
-| Model              | CV Mean F1 | CV Std F1 |
-| :----------------- | ---------: | --------: |
-| LogisticRegression |   0.00 %   |   0.00 %  |
-| RandomForest       |   0.00 %   |   0.00 %  |
-| GradientBoosting   |   0.00 %   |   0.00 %  |
-
-All three CV means are 0 because the default-threshold predictions collapse to majority-class behaviour on FraudX's severely imbalanced folds — the same imbalance ceiling identified in PRs #17 / #21 / #22. CV std = 0 across folds (every fold reports F1 = 0 on the positive class).
-
-### 📊 Test-set evaluation
-
-| Model              | Accuracy | Precision (1) | Recall (1) | F1 (1) | TN / FP / FN / TP |
-| :----------------- | -------: | ------------: | ---------: | -----: | :--- |
-| LogisticRegression |  91.00 % |        0.00 % |     0.00 % | 0.00 % | 182 / 0 / 18 / 0 |
-| RandomForest       |  91.00 % |        0.00 % |     0.00 % | 0.00 % | 182 / 0 / 18 / 0 |
-| GradientBoosting   |  88.50 % |        0.00 % |     0.00 % | 0.00 % | 177 / 5 / 18 / 0 |
-
-**Subtle but important**: Gradient Boosting predicts class 1 five times on the test set, while LR and RF never predict class 1. GB gets all 5 of those positive predictions wrong (precision = 0), but the willingness to predict class 1 *at all* is real evidence that GB has more learning capacity than the other two. It loses 2.5 pp of accuracy by being more eager — a cost that pays off downstream when combined with threshold tuning, class weighting (PR #22), or oversampling (PR #23).
-
-### 🏆 Final selection
-
-**Selected model: Logistic Regression.**
-
-Selection rule:
-1. Highest CV mean wins. ↳ All three tied at 0.00 %.
-2. If within 1 pp, lowest CV std wins. ↳ All three tied at 0.00 %.
-3. Tie → first in declaration order = LR.
-
-Persisted to `models/best_comparison_model.pkl`.
-
-**Production-defensible reasons to prefer LR** (Part 5 question 5): interpretability (coefficient-level audit trail), inference latency (single dot product vs multi-tree traversal), well-calibrated probabilities out of the box (no Platt / isotonic calibration needed), trivial retraining cost.
-
-**Why GB might be the right pick anyway**: it's the only model in the comparison that's *willing to predict class 1* on this dataset. Combined with PR #23's resampling or PR #22's class weighting, GB is the most likely to break through the imbalance ceiling. Both readings are defensible — the docs explain both verdicts.
-
-### 🎨 Visualisation
-
-`reports/plots/model_comparison_cv.png` — bar chart of CV mean ± std for the three models. On this dataset all three bars are at 0 with zero-height error bars, which is itself the diagnostic finding.
-
-### 🏃 How to run
-
+Run the standalone verification yourself:
 ```bash
 export PYTHONPATH=.
-python3 src/model_comparison.py    # just the comparison
-# OR
-python3 main.py                     # full pipeline (Phase 3 runs the comparison)
+python3 src/normalization.py
 ```
