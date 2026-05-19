@@ -61,7 +61,7 @@ pip install -r requirements.txt
 ```
 
 ### 4. Run the Machine Learning Pipeline
-Execute the full workflow (ingestion, preprocessing, training, and evaluation):
+Execute the full workflow (ingestion, preprocessing, training, evaluation, and hyperparameter tuning):
 ```bash
 export PYTHONPATH=.
 python3 main.py
