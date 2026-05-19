@@ -7,22 +7,31 @@ FraudX is a professional machine learning system designed for detecting fraudule
 ```text
 fraudX/
 ├── data/
-│   ├── raw/            # Original, immutable datasets
-│   └── processed/      # Cleaned and transformed datasets
-├── models/             # Serialized artifacts (model and preprocessor)
-├── reports/            # Output metrics and evaluation logs
-├── src/                # Source code directory
+│   ├── raw/                          # Original, immutable datasets
+│   └── processed/                    # Cleaned and transformed datasets
+├── docs/
+│   └── PIPELINE.md                   # Pipeline integration write-up
+├── models/                           # Serialized artifacts
+│   ├── fraud_model.pkl               # Trained RandomForestClassifier
+│   ├── preprocessor.pkl              # Fitted ColumnTransformer
+│   └── sklearn_pipeline.pkl          # Fitted Pipeline (ColumnTransformer + RF)
+├── reports/                          # Output metrics, plots, evaluation logs
+├── src/                              # Source code directory
 │   ├── __init__.py
-│   ├── config.py       # Centralized configuration and paths
-│   ├── data_preprocessing.py # Loading, cleaning, and splitting
-│   ├── feature_engineering.py # Encoding and scaling pipelines
-│   ├── train.py        # Model training logic
-│   ├── evaluate.py     # Performance evaluation
-│   ├── persistence.py  # Artifact saving and loading
-│   ├── predict.py      # Inference logic
-│   └── main.py         # Orchestration script
-├── requirements.txt    # Project dependencies
-└── README.md           # Documentation
+│   ├── config.py                     # Centralized configuration and paths
+│   ├── data_loader.py                # CSV loading with validation
+│   ├── data_preprocessing.py         # Cleaning + train-test split (no leakage)
+│   ├── feature_engineering.py        # ColumnTransformer (scaler + encoder)
+│   ├── pipeline_demo.py              # Manual-vs-Pipeline side-by-side demo
+│   ├── train.py                      # Model training and artifact persistence
+│   ├── evaluate.py                   # Performance evaluation
+│   ├── persistence.py                # Artifact saving and loading
+│   ├── predict.py                    # Inference logic
+│   ├── leakage_demo.py               # Target leakage demonstration
+│   └── eda.py                        # Exploratory plots
+├── main.py                           # Orchestration entry point
+├── requirements.txt                  # Project dependencies
+└── README.md                         # Documentation
 ```
 
 ## 🚀 Project Setup Instructions
@@ -52,10 +61,16 @@ pip install -r requirements.txt
 ```
 
 ### 4. Run the Machine Learning Pipeline
-Execute the full workflow (ingestion, preprocessing, training, and evaluation):
+Execute the full workflow (ingestion, preprocessing, training, evaluation, and the Pipeline integration demo):
 ```bash
 export PYTHONPATH=.
-python3 src/main.py
+python3 main.py
+```
+
+To run just the Pipeline integration demonstration:
+```bash
+export PYTHONPATH=.
+python3 src/pipeline_demo.py
 ```
 
 ### 5. Verification
@@ -255,3 +270,76 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 🧱 Scikit-Learn Pipeline Integration
+
+The project includes a Pipeline-integration demonstration in [`src/pipeline_demo.py`](src/pipeline_demo.py) that runs TWO classification workflows on the same train/test split: a manual preprocessing version (with the classic "fit on the full dataset before splitting" leakage bug), and the proper `ColumnTransformer + Pipeline` workflow. The long-form rationale, mandatory reflection answers, and scenario-question answers live in [`docs/PIPELINE.md`](docs/PIPELINE.md); the short version follows.
+
+### 🛠️ Two workflows, side by side
+
+| Approach | What it does | Why we show it |
+| :--- | :--- | :--- |
+| **A. Manual (with leakage)** | `scaler.fit_transform(X_full)`, then `train_test_split`, then `cross_val_score(model, X_train_processed, y_train)`. | The classic bug. Preprocessing learns from the test rows; the reported CV is inflated; production performance silently drops at deploy time. |
+| **B. Proper Pipeline** | Single `Pipeline(ColumnTransformer + RandomForestClassifier)`. `cross_val_score(pipeline, X_train, y_train, cv=5)` so preprocessing re-fits inside every fold. `pipeline.fit(X_train).score(X_test)` at the end. | The right pattern. Leakage is impossible by construction. Predictions automatically include preprocessing. |
+
+### 📐 Pipeline composition
+
+```python
+num_pipeline = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler",  StandardScaler()),
+])
+cat_pipeline = Pipeline([
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("onehot",  OneHotEncoder(handle_unknown="ignore", drop="first", sparse_output=False)),
+])
+preprocessor = ColumnTransformer([
+    ("num", num_pipeline, NUMERICAL_FEATURES),
+    ("cat", cat_pipeline, CATEGORICAL_FEATURES),
+])
+pipeline = Pipeline([
+    ("preprocessor", preprocessor),
+    ("classifier",   RandomForestClassifier(random_state=42)),
+])
+```
+
+### 📊 Headline result (real numbers from this repo)
+
+Test set: 200 samples (182 class 0 / 18 class 1). Scoring metric: **F1 on the fraud (positive) class** — identical for both approaches.
+
+| Approach | Train F1 | Test F1 | CV mean F1 | CV std |
+| :--- | ---: | ---: | ---: | ---: |
+| Manual (with leakage)   | 100.0% | 0.0% | 0.0% | 0.0% |
+| Pipeline (no leakage)   | 100.0% | 0.0% | 0.0% | 0.0% |
+
+**Reading**: On this specific dataset both approaches collapse to the same numbers because the default `RandomForestClassifier` cannot learn the minority class under the existing 91/9 imbalance (see PR #17). The leakage in Approach A has nothing to act on. **The Pipeline workflow is still strictly preferred** — leakage is a correctness issue, not a metric-magnitude issue. On a less degenerate dataset (rare categories, distribution drift, skewed numerical features) Approach A's CV mean would be visibly inflated above Approach B's, and the production drop at deploy time would surface.
+
+### 📝 Reflection (mandatory in PR description)
+
+The four reflection questions are answered verbatim in [`docs/PIPELINE.md` §7](docs/PIPELINE.md#7-reflection-mandatory-in-pr-description) and in the PR description. In short: preprocessing outside a Pipeline can silently fit on the test rows; Pipeline objects are picklable single-step artifacts that survive re-execution unchanged; `ColumnTransformer` declares the column-to-transformer mapping once instead of forcing manual slice-and-stitch; encoding before the train/test split lets the encoder learn a vocabulary that includes test-set categories, which inflates evaluation and breaks production.
+
+### 🚫 Leakage prevention
+
+- `train_test_split` runs before *any* model or transformer is constructed.
+- All preprocessing in Approach B lives inside the Pipeline. Test data is never transformed outside the pipeline.
+- `cross_val_score` runs on the Pipeline itself — sklearn clones the pipeline per fold so the `ColumnTransformer` re-fits on each fold's training rows only.
+- Test set evaluated **once**.
+
+### 📦 Persistence
+
+`models/sklearn_pipeline.pkl` — fitted `Pipeline(preprocessor + RandomForestClassifier)`. Reusable at inference:
+
+```python
+import joblib
+pipeline = joblib.load("models/sklearn_pipeline.pkl")
+predictions = pipeline.predict(new_data_df)   # preprocessing automatic
+```
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/pipeline_demo.py     # just the demo
+# OR
+python3 main.py                  # full pipeline (Phase 3 runs the demo)
+```
