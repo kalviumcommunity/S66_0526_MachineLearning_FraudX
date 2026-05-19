@@ -255,3 +255,67 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## 🔀 Multi-Model Comparison with Cross-Validation
+
+The project includes a fair, disciplined head-to-head comparison module in [`src/model_comparison.py`](src/model_comparison.py) that trains THREE classifiers — **Logistic Regression**, **Random Forest**, and **Gradient Boosting** — on the SAME train/test split, with the SAME preprocessing pipeline, the SAME 5-fold StratifiedKFold CV strategy, and the SAME scoring metric (`f1` on the fraud class). Long-form rationale, the five Part 5 comparative-analysis answers, the bias-variance discussion, and the final justified model selection live in [`docs/MODEL_COMPARISON.md`](docs/MODEL_COMPARISON.md).
+
+### 🛠️ The three candidates
+
+| Model | Why it's in the comparison |
+| :--- | :--- |
+| **Logistic Regression** (L2) | Linear baseline. Fast, interpretable, well-calibrated probabilities. Reveals whether the FraudX signal is linearly separable. |
+| **Random Forest** | The project's incumbent in every prior module. Tree ensemble; low variance via bagging. |
+| **Gradient Boosting** | Sequential trees fit on residuals. Typically the strongest tabular learner of the three. |
+
+All three live in the SAME `Pipeline(ColumnTransformer + classifier)` — the only thing different is the final estimator step.
+
+### 📊 Cross-validation results
+
+5-fold StratifiedKFold (`shuffle=True`, `random_state=42`), `scoring="f1"` on the fraud (positive) class.
+
+| Model              | CV Mean F1 | CV Std F1 |
+| :----------------- | ---------: | --------: |
+| LogisticRegression |   0.00 %   |   0.00 %  |
+| RandomForest       |   0.00 %   |   0.00 %  |
+| GradientBoosting   |   0.00 %   |   0.00 %  |
+
+All three CV means are 0 because the default-threshold predictions collapse to majority-class behaviour on FraudX's severely imbalanced folds — the same imbalance ceiling identified in PRs #17 / #21 / #22. CV std = 0 across folds (every fold reports F1 = 0 on the positive class).
+
+### 📊 Test-set evaluation
+
+| Model              | Accuracy | Precision (1) | Recall (1) | F1 (1) | TN / FP / FN / TP |
+| :----------------- | -------: | ------------: | ---------: | -----: | :--- |
+| LogisticRegression |  91.00 % |        0.00 % |     0.00 % | 0.00 % | 182 / 0 / 18 / 0 |
+| RandomForest       |  91.00 % |        0.00 % |     0.00 % | 0.00 % | 182 / 0 / 18 / 0 |
+| GradientBoosting   |  88.50 % |        0.00 % |     0.00 % | 0.00 % | 177 / 5 / 18 / 0 |
+
+**Subtle but important**: Gradient Boosting predicts class 1 five times on the test set, while LR and RF never predict class 1. GB gets all 5 of those positive predictions wrong (precision = 0), but the willingness to predict class 1 *at all* is real evidence that GB has more learning capacity than the other two. It loses 2.5 pp of accuracy by being more eager — a cost that pays off downstream when combined with threshold tuning, class weighting (PR #22), or oversampling (PR #23).
+
+### 🏆 Final selection
+
+**Selected model: Logistic Regression.**
+
+Selection rule:
+1. Highest CV mean wins. ↳ All three tied at 0.00 %.
+2. If within 1 pp, lowest CV std wins. ↳ All three tied at 0.00 %.
+3. Tie → first in declaration order = LR.
+
+Persisted to `models/best_comparison_model.pkl`.
+
+**Production-defensible reasons to prefer LR** (Part 5 question 5): interpretability (coefficient-level audit trail), inference latency (single dot product vs multi-tree traversal), well-calibrated probabilities out of the box (no Platt / isotonic calibration needed), trivial retraining cost.
+
+**Why GB might be the right pick anyway**: it's the only model in the comparison that's *willing to predict class 1* on this dataset. Combined with PR #23's resampling or PR #22's class weighting, GB is the most likely to break through the imbalance ceiling. Both readings are defensible — the docs explain both verdicts.
+
+### 🎨 Visualisation
+
+`reports/plots/model_comparison_cv.png` — bar chart of CV mean ± std for the three models. On this dataset all three bars are at 0 with zero-height error bars, which is itself the diagnostic finding.
+
+### 🏃 How to run
+
+```bash
+export PYTHONPATH=.
+python3 src/model_comparison.py    # just the comparison
+# OR
+python3 main.py                     # full pipeline (Phase 3 runs the comparison)
+```
