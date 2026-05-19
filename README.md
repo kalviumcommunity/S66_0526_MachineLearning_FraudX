@@ -255,3 +255,90 @@ Categorical features (`category`, `location`) are **not scaled**. They are proce
 
 ### 📊 Verification
 After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+
+## ♻️ Oversampling for Imbalanced Classification
+
+The project includes an oversampling module in [`src/oversampling.py`](src/oversampling.py) that trains THREE models on the same train/test split — Baseline RF, RandomOverSampler+RF, SMOTE+RF — all inside an `imblearn.pipeline.Pipeline` so cross-validation re-fits the sampler INSIDE each fold (no leakage). Long-form rationale, the assignment's Part 5 scenario answers, the recall-precision trade-off analysis, and the **business recommendation** live in [`docs/OVERSAMPLING.md`](docs/OVERSAMPLING.md).
+
+### 🛠️ Two oversampling techniques
+
+| Technique | What it does | Effect |
+| :--- | :--- | :--- |
+| **RandomOverSampler** | Duplicates random minority rows until both classes are equal. | More exposure to existing minority rows. Risks overfitting to those exact rows. |
+| **SMOTE** | Synthesises new minority rows by interpolating between a row and its 5 nearest minority neighbours. | More diversity within the minority class's existing region of feature space. Cannot manufacture signal outside that region. |
+
+### 📊 Class distribution before/after (training set only)
+
+| Stage                       | class 0 | class 1 | total |
+| :-------------------------- | ------: | ------: | ----: |
+| Before (original train)     |     727 |      73 |   800 |
+| After RandomOverSampler     |     727 |     727 | 1,454 |
+| After SMOTE                 |     727 |     727 | 1,454 |
+
+### 📊 Headline result (real numbers from this repo)
+
+Test set: 200 samples (182 class 0 / 18 class 1). All metrics on the same X_test / y_test with identical scoring.
+
+| Model                       | Accuracy | Precision (1) | Recall (1) | F1 (1) | CV mean F1 | CV std |
+| :-------------------------- | -------: | ------------: | ---------: | -----: | ---------: | -----: |
+| Baseline RF                 |  91.00 % |        0.00 % |     0.00 % | 0.00 % |     0.00 % | 0.00 % |
+| RandomOverSampler + RF      |  89.00 % |       16.67 % |     5.56 % | 8.33 % |     2.50 % | 5.00 % |
+| SMOTE + RF                  |  83.00 % |        5.56 % |     5.56 % | 5.56 % |     6.18 % | 8.70 % |
+
+**This is the first module where the trained model actually catches fraud cases.** Both Random OS and SMOTE flip 1 of 18 minority test cases to a true positive. The accuracy drop is the visible *cost* of pursuing recall (each FP costs ~0.5 pp), and Random OS produces 5 FPs while SMOTE produces 17 FPs — same recall, very different precision.
+
+### 🚫 The mandatory CV discipline
+
+Cross-validation has to live INSIDE the imblearn Pipeline. The wrong way:
+
+```python
+X_os, y_os = SMOTE().fit_resample(X_train, y_train)
+cross_val_score(model, X_os, y_os, cv=5)   # LEAKAGE
+```
+
+— because each CV fold's "validation" rows now contain synthetic minority rows that SMOTE generated from minority neighbours in the same fold's training set. The right way:
+
+```python
+from imblearn.pipeline import Pipeline   # NOT sklearn's Pipeline
+pipe = Pipeline([
+    ("preprocessor", ColumnTransformer(...)),
+    ("sampler", SMOTE(random_state=42)),
+    ("classifier", RandomForestClassifier(random_state=42)),
+])
+cross_val_score(pipe, X_train, y_train, cv=5)   # honest
+```
+
+sklearn's Pipeline can't host samplers because it has no notion of an estimator that changes row count. `imblearn.pipeline.Pipeline` is built for it: the sampler runs during `fit()` per fold but is BYPASSED at `predict()` time.
+
+### 📝 Recall-precision trade-off
+
+Resampling biases the trees toward predicting class 1 more eagerly. Two consequences:
+
+- **Recall ↑** — more true positives caught (Random OS and SMOTE go from 0 recall to 5.56 %).
+- **Precision ↓** — every additional false positive lowers precision (Random OS at 16.67 %, SMOTE at 5.56 % — the difference is the number of FPs introduced).
+
+The right operating point depends on the business cost ratio between false negatives (missed fraud, $X loss) and false positives (legit blocked, minutes of friction). At a typical c_FN/c_FP ≥ 50, the resampled models are net positive vs the baseline.
+
+### 📦 Persistence
+
+```python
+import joblib
+pipeline = joblib.load("models/smote_fraud_model.pkl")
+proba = pipeline.predict_proba(new_data_df)[:, 1]   # for threshold tuning
+```
+
+The fitted SMOTE pipeline is saved for downstream threshold-tuning. Inference skips the sampler entirely — only the preprocessor and classifier run on new data.
+
+### 🎨 Visualisation
+
+`reports/plots/oversampling_confusion_matrices.png` — 3-panel side-by-side confusion-matrix heatmap (Baseline | Random OS | SMOTE).
+
+### 🏃 How to run
+
+```bash
+pip install imbalanced-learn==0.12.4
+export PYTHONPATH=.
+python3 src/oversampling.py    # just the demo
+# OR
+python3 main.py                 # full pipeline (Phase 3 runs the demo)
+```
