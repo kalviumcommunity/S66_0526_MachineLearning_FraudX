@@ -10,29 +10,26 @@ fraudX/
 │   ├── raw/                          # Original, immutable datasets
 │   └── processed/                    # Cleaned and transformed datasets
 ├── docs/
-│   └── TUNING.md                     # Hyperparameter tuning write-up
+│   └── NORMALIZATION.md              # MinMaxScaler design & decisions
 ├── models/                           # Serialized artifacts
 │   ├── fraud_model.pkl               # Trained RandomForestClassifier
-│   ├── preprocessor.pkl              # Fitted ColumnTransformer
-│   └── tuned_fraud_model.pkl         # RandomizedSearchCV-tuned RF pipeline
+│   ├── preprocessor.pkl              # Fitted ColumnTransformer (scaler + encoder)
+│   └── minmax_scaler.pkl             # Standalone fitted MinMaxScaler
 ├── reports/                          # Output metrics, plots, evaluation logs
-│   ├── tuning_results.csv            # Full cv_results_ table
-│   └── plots/
-│       └── tuning_results.png        # Scatter: max_depth vs CV mean F1
 ├── src/                              # Source code directory
 │   ├── __init__.py
 │   ├── config.py                     # Centralized configuration and paths
 │   ├── data_loader.py                # CSV loading with validation
 │   ├── data_preprocessing.py         # Cleaning + train-test split (no leakage)
-│   ├── feature_engineering.py        # ColumnTransformer (scaler + encoder)
+│   ├── feature_engineering.py        # ColumnTransformer (MinMaxScaler + OHE)
+│   ├── normalization.py              # Standalone MinMaxScaler workflow + verification
 │   ├── train.py                      # Model training and artifact persistence
-│   ├── tuning.py                     # RandomizedSearchCV hyperparameter tuning
 │   ├── evaluate.py                   # Performance evaluation
 │   ├── persistence.py                # Artifact saving and loading
 │   ├── predict.py                    # Inference logic (transform-only, no refit)
 │   ├── leakage_demo.py               # Target leakage demonstration
-│   └── eda.py                        # Exploratory plots
-├── main.py                           # Orchestration entry point
+│   ├── eda.py                        # Exploratory plots
+│   └── main.py                       # Orchestration entry point
 ├── requirements.txt                  # Project dependencies
 └── README.md                         # Documentation
 ```
@@ -70,10 +67,10 @@ export PYTHONPATH=.
 python3 main.py
 ```
 
-To run just the tuning module (RandomizedSearchCV over 4 hyperparameters):
+To run just the standalone MinMaxScaler normalization workflow (split → fit-on-train → transform-test → verify → save):
 ```bash
 export PYTHONPATH=.
-python3 src/tuning.py
+python3 src/normalization.py
 ```
 
 ### 5. Verification
@@ -145,11 +142,11 @@ These features represent measurable quantities where arithmetic relationships ca
 
 | Feature Name | Reason for Numerical Type | Scaling Strategy |
 | :--- | :--- | :--- |
-| `amount` | Represents currency magnitude; continuous value. | `StandardScaler` (Z-score normalization) |
-| `transaction_count` | Discrete integer count of recent activity. | `StandardScaler` |
-| `velocity` | Calculated frequency ratio; continuous value. | `StandardScaler` |
+| `amount` | Represents currency magnitude; continuous value. | `MinMaxScaler` (range [0, 1]) |
+| `transaction_count` | Discrete integer count of recent activity. | `MinMaxScaler` (range [0, 1]) |
+| `velocity` | Calculated frequency ratio; continuous value. | `MinMaxScaler` (range [0, 1]) |
 
-- **Scaling Justification**: All numerical features are scaled to a mean of 0 and variance of 1 to ensure that features with larger ranges (like `amount`) do not dominate the distance-based calculations of the model.
+- **Scaling Justification**: All numerical features are normalized to the bounded range `[0, 1]` so that features with larger natural ranges (like `amount`) do not dominate the distance-based or gradient-based calculations of scale-sensitive models. See [Numerical Feature Normalization](#-numerical-feature-normalization-minmaxscaler) below for the full rationale, leakage discipline, and verification.
 
 ### 🗂️ Categorical Features
 These features represent discrete labels or groups with no inherent mathematical magnitude.
@@ -249,95 +246,58 @@ We compared two versions of the model:
 ---
 *Run the demonstration yourself using:* `python3 src/leakage_demo.py`
 
-## ⚖️ Numerical Feature Scaling
+## ⚖️ Numerical Feature Normalization (`MinMaxScaler`)
 
-Numerical features in the FraudX dataset exist on different scales (e.g., `amount` can be in the hundreds, while `velocity` is a small ratio). To ensure stable optimization and consistent feature contribution, we implement standardization using `StandardScaler`.
+Numerical features in the FraudX dataset exist on very different natural scales (`amount` ranges into the hundreds, `transaction_count` is a small integer count, `velocity` is a ratio). To ensure stable optimization and consistent feature contribution for scale-sensitive models, we **normalize** all numerical features to the bounded range `[0, 1]` using `MinMaxScaler`.
+
+This implementation is the deliverable for the **Feature Normalization (MinMaxScaler)** assignment. A dedicated standalone module, [`src/normalization.py`](src/normalization.py), demonstrates the exact split → fit-on-train → transform-test → verify → save workflow in its most explicit form. The same scaler is also wired into the production [`ColumnTransformer`](src/feature_engineering.py) so the rest of the pipeline (training and inference) uses it automatically. See [`docs/NORMALIZATION.md`](docs/NORMALIZATION.md) for the long-form write-up.
 
 ### 🛠️ Implementation Details
-- **Features Scaled**: `amount`, `transaction_count`, `velocity`.
-- **Method**: `StandardScaler` (Standardization).
-- **Transformation Formula**: $z = (x - \mu) / \sigma$ (resulting in Mean=0, Std=1).
+- **Features Scaled**: `amount`, `transaction_count`, `velocity` (only the columns listed in `NUMERICAL_FEATURES` in [`src/config.py`](src/config.py)).
+- **Method**: `sklearn.preprocessing.MinMaxScaler(feature_range=(0, 1))`.
+- **Transformation Formula**: `x_scaled = (x - x_min_train) / (x_max_train - x_min_train)` — where `x_min_train` and `x_max_train` are learned from the training set only.
+- **Where `fit()` is called**: on `X_train[NUMERICAL_FEATURES]` only, inside the `ColumnTransformer`'s numerical sub-pipeline (and explicitly in `normalization.py`).
+- **Where `transform()` is called**: on `X_test[NUMERICAL_FEATURES]` and on any new data at inference time. `fit_transform()` is **never** called on the test set or on new data.
 
-### 🧠 Strategic Justification
-1. **Model Choice**: We are using a `RandomForestClassifier`. While tree-based models are scale-invariant, we apply scaling to:
-    - Maintain numerical stability in the preprocessing pipeline.
-    - Ensure compatibility if we decide to switch to distance-based models (like SVM or kNN) or linear models (like Logistic Regression) in the future.
-    - Provide a standardized range for feature importance comparisons.
-2. **Leakage Prevention**:
-    - **Split-First Policy**: Scaling is applied *only* after the train-test split.
-    - **Fit-Transform Discipline**: The `StandardScaler` is `fit()` exclusively on the training set. The test set is transformed using the parameters (mean and variance) learned from the training data, ensuring no information from the test set leaks into the training process.
-3. **Artifact Persistence**: The fitted scaler is part of the `ColumnTransformer` saved in `models/preprocessor.pkl`. This ensures that during inference, new data is scaled using the exact same parameters used during training.
+### 🧠 Why `MinMaxScaler` (and not `StandardScaler`)?
+1. **Model-agnostic bounded inputs.** Distance-based learners (kNN), margin-based learners (SVM), gradient-based learners (Logistic Regression, Neural Networks) all benefit from inputs that share a common, bounded scale. `MinMaxScaler` gives every feature an identical range `[0, 1]`. `StandardScaler` instead centers each feature around its mean with unit variance — different features still end up with different empirical ranges, which is not what we want when we may swap in distance/margin-based models in future sprints.
+2. **Distribution shape is preserved.** `MinMaxScaler` is a linear rescaling; it does not assume the data is Gaussian. Our `transaction_count` and `velocity` features are nearly symmetric, while `amount` is right-skewed — `MinMaxScaler` keeps each distribution's shape intact and just remaps the axis, which is the right behavior when we have not committed to a parametric assumption.
+3. **Interpretability.** Scaled values lie in `[0, 1]`, which makes downstream debugging, feature-importance plots, and ad-hoc sanity checks much easier to read than z-scores.
 
-### 🚫 Categorical Handling
-Categorical features (`category`, `location`) are **not scaled**. They are processed via `OneHotEncoder`, which transforms them into binary flags (0 or 1). Scaling these binary flags would distort their logical meaning.
+### 🚫 Leakage Prevention — How
+- **Split-first policy.** `train_test_split` is called BEFORE any scaler is instantiated. No global mean / variance / min / max is ever computed across the full dataset.
+- **Fit-on-train discipline.** The `MinMaxScaler` is `fit()` exclusively on the training set. The test set is transformed using the `data_min_` and `data_max_` learned on training data only.
+- **Inference-time discipline.** `predict.py` and the inference demo in `normalization.py` both call `transform()` (never `fit_transform()`) using the saved scaler. New, unseen samples are scaled with the EXACT parameters used during training.
+- **Why `fit_transform` on the whole dataset would be a leak.** The test set's min and max would secretly contribute to the scaling parameters, so the model would have implicitly "seen" properties of the test set during training. The reported test score would be optimistic and would not generalize to truly unseen production data.
 
-### 📊 Verification
-After scaling, the training features exhibit a mean of approximately 0 and a standard deviation of 1, confirming a successful transformation.
+### 🗂️ Categorical Features Are Not Scaled
+Categorical features (`category`, `location`) are processed via `OneHotEncoder` only. They become binary 0/1 flags. Rescaling binary flags would distort their logical meaning, so the `MinMaxScaler` is applied strictly to `NUMERICAL_FEATURES`.
 
-## 🎛️ Hyperparameter Tuning (RandomizedSearchCV)
-
-The project includes a hyperparameter tuning module ([`src/tuning.py`](src/tuning.py)) that uses `sklearn.model_selection.RandomizedSearchCV` to search over the four `RandomForestClassifier` hyperparameters the assignment example highlights as most impactful. The long-form rationale, scenario-question answers, and full worked numbers live in [`docs/TUNING.md`](docs/TUNING.md); the short version is below.
-
-### 🛠️ Why `RandomizedSearchCV` (not `GridSearchCV`)
-
-A grid over 4 hyperparameters with modest ranges (e.g. 4×5×4×2 = 160 candidates) needs 800 model fits at 5-fold CV. Random search samples a fixed number of candidates from **distributions** instead, so coverage of the search space scales with the compute budget (`n_iter`) rather than the product of grid sizes. Empirically (Bergstra & Bengio, 2012), random search matches or beats grid search in fewer iterations.
-
-### 📐 Search configuration
-
-| Setting              | Value                                                                                          |
-| -------------------- | ---------------------------------------------------------------------------------------------- |
-| `n_iter`             | 30                                                                                             |
-| `cv`                 | `StratifiedKFold(n_splits=5, shuffle=True, random_state=42)`                                   |
-| `scoring`            | `"f1"` (binary F1 on the fraud / positive class) — same metric used for baseline and final eval. |
-| `random_state`       | 42 (reproducible search)                                                                       |
-
-### 🎚️ Hyperparameter distributions
-
-| Hyperparameter | Distribution | Reasoning |
-| :--- | :--- | :--- |
-| `n_estimators` | `randint(50, 500)` | More trees → lower variance via averaging; > 500 hits diminishing returns. |
-| `max_depth` | `randint(3, 30)` | Primary bias-variance lever. Shallow → underfit; very deep → memorise training rows. |
-| `min_samples_leaf` | `randint(1, 20)` | Regularises leaves; bigger values force generalisable splits. |
-| `max_features` | `["sqrt", "log2"]` | Discrete categorical: feature subsampling per split. `"sqrt"` = sklearn default. |
-
-### 📊 Headline result (real numbers from this repo)
-
-| Model | Train F1 | Test F1 | CV mean F1 | CV std | Train-Test gap |
-| :--- | ---: | ---: | ---: | ---: | ---: |
-| Baseline RF (sklearn defaults) | 100.0% | 0.0% | 0.0% | 0.0% | **100.0 pp** (severe overfit) |
-| Tuned RF (RandomizedSearchCV)  |   0.0% | 0.0% | 0.0% | 0.0% | **0.0 pp** (no overfit) |
-
-Best params selected by the search:
+### 📦 Persistence (`joblib`)
+Two artifacts are saved on every training run:
+- `models/preprocessor.pkl` — the full fitted `ColumnTransformer` (scaler + encoder), used by `predict.py`.
+- `models/minmax_scaler.pkl` — the **standalone fitted `MinMaxScaler`** (required by the assignment), so the scaler can be inspected and reused in isolation.
 
 ```python
-{
-    "classifier__max_depth":        9,
-    "classifier__max_features":     "log2",
-    "classifier__min_samples_leaf": 15,
-    "classifier__n_estimators":     156,
-}
+import joblib
+joblib.dump(scaler, "models/minmax_scaler.pkl")  # save
+scaler = joblib.load("models/minmax_scaler.pkl") # load at prediction time
+X_new[NUMERICAL_FEATURES] = scaler.transform(X_new[NUMERICAL_FEATURES])
 ```
 
-**Reading**: tuning *did* its job on variance — the 100 pp train-test gap collapsed to 0 pp. But the final test F1 stayed at 0 because the search space did not contain a class-imbalance fix (e.g. `class_weight="balanced"` or resampling). This is a classic "search-found-a-bad-optimum" failure mode: every candidate scored 0 in CV because there was no usable signal to climb, so the search returned an arbitrary point with the lowest train F1. Detailed bias-variance analysis is in [`docs/TUNING.md` § 5](docs/TUNING.md#5-bias-variance-reading-of-the-tuned-result).
+### 🧪 Outlier Consideration
+- **Inspection.** EDA boxplots (`reports/plots/boxplots.png`) show that `amount` is right-skewed with a long tail, while `transaction_count` and `velocity` are reasonably symmetric. The skewness numbers (≈ 1.87 for `amount`, near 0 for the other two) are also recorded in the EDA section above.
+- **Decision.** Outliers were **left in place — not capped, not log-transformed** — because in a fraud-detection context, unusually large transactions often carry predictive signal (large amounts are disproportionately fraudulent). Removing or capping them would destroy useful information.
+- **Why `MinMaxScaler` is still appropriate.** Yes, `MinMaxScaler` is sensitive to extreme values — the maximum value defines the upper bound. But because the scaler is fit on training data only, the resulting `[0, 1]` range simply reflects "the most extreme transaction we saw during training." Genuinely larger transactions in the test set or in production will scale to slightly above `1.0`, which is acceptable: tree ensembles like our `RandomForestClassifier` are unaffected by that, and downstream scale-sensitive models still receive a stable, well-behaved input. If a future model is more sensitive to that tail behaviour, a `log1p` transform on `amount` (applied AFTER the train-test split, fit on train only) would be the next iteration.
 
-### 🚫 Leakage prevention
+### 📊 Verification
+The training pipeline (and `normalization.py`) prints and asserts the following on every run:
+- Minimum of each scaled numerical feature in the **training set** is approximately `0`.
+- Maximum of each scaled numerical feature in the **training set** is approximately `1`.
+- The test set's range may slightly exceed `[0, 1]` if its values are more extreme than anything seen during training — this is **expected and correct**, and it confirms that no information leaked from the test set into the training fit.
 
-- `train_test_split` runs *before* any model is constructed.
-- `search.fit(X_train, y_train)` — the test set is sealed until step 4.
-- Preprocessing lives inside the `Pipeline`, so the `ColumnTransformer` is re-fit on each CV fold's training rows only.
-- Test set evaluated **once**, with the same `f1` metric used by the search.
-
-### 📦 Persistence
-
-- `models/tuned_fraud_model.pkl` — fitted `Pipeline(preprocessor + RandomForestClassifier)` with the tuned hyperparameters.
-- `reports/tuning_results.csv` — full `RandomizedSearchCV.cv_results_` table (every candidate's params + CV mean + std + rank).
-- `reports/plots/tuning_results.png` — scatter visualisation: `max_depth` vs CV mean F1, coloured by `min_samples_leaf`, sized by `n_estimators`.
-
-### 🏃 How to run
-
+Run the standalone verification yourself:
 ```bash
 export PYTHONPATH=.
-python3 src/tuning.py     # just the tuning module
-# OR
-python3 main.py           # full pipeline (Phase 3 runs the tuning)
+python3 src/normalization.py
 ```
