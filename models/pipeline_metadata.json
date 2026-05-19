@@ -1,0 +1,54 @@
+{
+  "model_description": "RandomForestClassifier with RandomOverSampler oversampling, selected in PR #25 (Final Model Selection) for FraudX. Capstone of PRs #15-#27.",
+  "pipeline_steps": [
+    "preprocessor: ColumnTransformer(SimpleImputer(median)+StandardScaler | SimpleImputer(most_frequent)+OneHotEncoder(handle_unknown=ignore))",
+    "sampler: RandomOverSampler(random_state=42)",
+    "classifier: RandomForestClassifier(random_state=42)"
+  ],
+  "training": {
+    "random_state": 42,
+    "train_size": 800,
+    "test_size": 200,
+    "train_fraud_share": 0.09125,
+    "test_fraud_share": 0.09,
+    "trained_at": "2026-05-19T08:58:32Z"
+  },
+  "feature_schema": {
+    "numerical_features": [
+      "amount",
+      "transaction_count",
+      "velocity"
+    ],
+    "categorical_features": [
+      "category",
+      "location"
+    ]
+  },
+  "test_metrics": {
+    "accuracy": 0.89,
+    "precision_1": 0.16666666666666666,
+    "recall_1": 0.05555555555555555,
+    "f1_1": 0.08333333333333333,
+    "confusion_matrix": [
+      [
+        177,
+        5
+      ],
+      [
+        17,
+        1
+      ]
+    ],
+    "test_set_size": 200,
+    "test_fraud_share": 0.09
+  },
+  "library_versions": {
+    "python": "3.9.25",
+    "platform": "Linux-5.10.174-x86_64-with-glibc2.34",
+    "sklearn": "1.6.1",
+    "imbalanced_learn": "0.12.4",
+    "numpy": "2.0.2",
+    "pandas": "2.3.3",
+    "joblib": "1.5.3"
+  }
+}
